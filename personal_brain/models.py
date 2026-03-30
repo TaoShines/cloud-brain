@@ -40,6 +40,18 @@ class MessageRecord:
 
 
 @dataclass
+class BookmarkRecord:
+    bookmark_id: str
+    title: str
+    url: str
+    folder_path: str
+    added_at: Optional[str]
+    source_path: str
+    status: str = "active"
+    deleted_at: Optional[str] = None
+
+
+@dataclass
 class UnifiedRecord:
     record_key: str
     record_type: str
@@ -81,4 +93,5 @@ class ImporterPayload:
     documents: List[DocumentRecord]
     conversations: List[ConversationRecord]
     messages: List[MessageRecord]
+    bookmarks: List[BookmarkRecord]
     tags_by_source_id: Dict[str, List[str]]

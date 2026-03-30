@@ -5,7 +5,14 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from .models import ConversationRecord, DocumentRecord, MemoryItem, MessageRecord, UnifiedRecord
+from .models import (
+    BookmarkRecord,
+    ConversationRecord,
+    DocumentRecord,
+    MemoryItem,
+    MessageRecord,
+    UnifiedRecord,
+)
 
 
 SCHEMA = """
@@ -106,6 +113,21 @@ CREATE TABLE IF NOT EXISTS item_tags (
     tag TEXT NOT NULL,
     PRIMARY KEY (item_id, tag),
     FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS bookmarks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bookmark_id TEXT NOT NULL UNIQUE,
+    source_key TEXT NOT NULL,
+    title TEXT NOT NULL,
+    url TEXT NOT NULL,
+    folder_path TEXT NOT NULL,
+    added_at TEXT,
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    deleted_at TEXT,
+    status TEXT NOT NULL,
+    source_path TEXT NOT NULL
 );
 
 CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
@@ -304,6 +326,7 @@ class Database:
                 (SELECT COUNT(*) FROM item_tags) AS item_tag_count,
                 (SELECT COUNT(*) FROM conversations) AS conversation_count,
                 (SELECT COUNT(*) FROM messages) AS message_count,
+                (SELECT COUNT(*) FROM bookmarks) AS bookmark_count,
                 (SELECT COUNT(*) FROM search_index) AS search_index_count
             """
         ).fetchone()
@@ -318,8 +341,131 @@ class Database:
             "item_tags": stats["item_tag_count"],
             "conversations": stats["conversation_count"],
             "messages": stats["message_count"],
+            "bookmarks": stats["bookmark_count"],
             "search_index": stats["search_index_count"],
         }
+
+    def sync_bookmarks(
+        self, source_key: str, location: str, bookmarks: Iterable[BookmarkRecord]
+    ) -> int:
+        bookmark_rows = list(bookmarks)
+        self.upsert_source(source_key, "bookmark", location)
+
+        seen_ids: List[str] = []
+        for bookmark in bookmark_rows:
+            seen_ids.append(bookmark.bookmark_id)
+            self.connection.execute(
+                """
+                INSERT INTO bookmarks (
+                    bookmark_id, source_key, title, url, folder_path, added_at,
+                    first_seen_at, last_seen_at, deleted_at, status, source_path
+                ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), NULL, 'active', ?)
+                ON CONFLICT(bookmark_id) DO UPDATE SET
+                    title = excluded.title,
+                    url = excluded.url,
+                    folder_path = excluded.folder_path,
+                    added_at = excluded.added_at,
+                    last_seen_at = datetime('now'),
+                    deleted_at = NULL,
+                    status = 'active',
+                    source_path = excluded.source_path
+                """,
+                (
+                    bookmark.bookmark_id,
+                    source_key,
+                    bookmark.title,
+                    bookmark.url,
+                    bookmark.folder_path,
+                    bookmark.added_at,
+                    bookmark.source_path,
+                ),
+            )
+
+        if seen_ids:
+            placeholders = ", ".join("?" for _ in seen_ids)
+            self.connection.execute(
+                f"""
+                UPDATE bookmarks
+                SET status = 'deleted',
+                    deleted_at = COALESCE(deleted_at, datetime('now'))
+                WHERE source_key = ?
+                  AND bookmark_id NOT IN ({placeholders})
+                  AND status != 'deleted'
+                """,
+                [source_key, *seen_ids],
+            )
+        else:
+            self.connection.execute(
+                """
+                UPDATE bookmarks
+                SET status = 'deleted',
+                    deleted_at = COALESCE(deleted_at, datetime('now'))
+                WHERE source_key = ?
+                  AND status != 'deleted'
+                """,
+                (source_key,),
+            )
+
+        self.connection.commit()
+        return len(bookmark_rows)
+
+    def export_bookmark_memory_items(self, source_key: str) -> List[MemoryItem]:
+        rows = self.connection.execute(
+            """
+            SELECT
+                bookmark_id,
+                source_key,
+                title,
+                url,
+                folder_path,
+                added_at,
+                deleted_at,
+                status,
+                source_path
+            FROM bookmarks
+            WHERE source_key = ?
+            ORDER BY added_at DESC, id DESC
+            """,
+            (source_key,),
+        ).fetchall()
+
+        items: List[MemoryItem] = []
+        for row in rows:
+            deleted_at = row["deleted_at"]
+            status = row["status"]
+            body = row["url"] if not deleted_at else f"{row['url']}\nDeleted at: {deleted_at}"
+            items.append(
+                MemoryItem(
+                    item_id=row["bookmark_id"],
+                    source_key=row["source_key"],
+                    source_type="bookmark",
+                    external_id=row["bookmark_id"],
+                    item_type="bookmark",
+                    title=row["title"],
+                    body=body,
+                    created_at=row["added_at"],
+                    updated_at=deleted_at or row["added_at"],
+                    imported_at=None,
+                    checksum=self._build_checksum(
+                        row["bookmark_id"],
+                        row["title"],
+                        row["url"],
+                        row["folder_path"],
+                        status,
+                        deleted_at,
+                    ),
+                    location=row["source_path"],
+                    parent_id=None,
+                    metadata={
+                        "url": row["url"],
+                        "folder_path": row["folder_path"],
+                        "status": status,
+                        "deleted_at": deleted_at,
+                    },
+                    tags=["bookmark", status],
+                )
+            )
+        return items
 
     def search(
         self, query: str, entity_type: Optional[str] = None, limit: int = 10
@@ -432,6 +578,7 @@ class Database:
             FROM search_index
             JOIN items ON items.item_id = search_index.entity_key
             WHERE search_index MATCH ?
+              AND search_index.entity_type = 'item'
         """
         parameters: List[object] = [query]
         if source_type:
@@ -746,6 +893,7 @@ class Database:
     def replace_memory_items(self, memory_items: Iterable[MemoryItem]) -> int:
         item_rows = list(memory_items)
 
+        self.connection.execute("DELETE FROM search_index WHERE entity_type = 'item'")
         self.connection.execute("DELETE FROM item_tags")
         self.connection.execute("DELETE FROM items")
         self.connection.execute("DELETE FROM record_tags")
@@ -1018,6 +1166,13 @@ class Database:
                 "INSERT OR IGNORE INTO item_tags (item_id, tag) VALUES (?, ?)",
                 (item_row_id, tag),
             )
+        self.connection.execute(
+            """
+            INSERT INTO search_index (entity_type, entity_key, title, body)
+            VALUES (?, ?, ?, ?)
+            """,
+            ("item", item.item_id, item.title, item.body),
+        )
         return 0
 
     def _conversation_location(self, thread_id: str) -> Optional[str]:

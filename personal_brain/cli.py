@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -48,12 +49,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     timeline_parser.add_argument(
         "--source",
-        choices=["blog", "codex"],
+        choices=["blog", "codex", "bookmark"],
         help="Optional source filter",
     )
     timeline_parser.add_argument(
         "--type",
-        choices=["blog", "diary", "conversation", "message"],
+        choices=["blog", "diary", "conversation", "message", "bookmark"],
         help="Optional record type filter",
     )
 
@@ -102,24 +103,19 @@ def main() -> int:
         database.init()
 
         if args.command == "sync":
-            missing_sources = []
-            if not config.blog_repo_path:
-                missing_sources.append("blog_repo_path")
-            if not config.codex_state_db_path:
-                missing_sources.append("codex_state_db_path")
-            if missing_sources:
-                missing = ", ".join(missing_sources)
+            payloads = load_importer_payloads(config)
+            if not payloads:
                 print(
-                    "Missing sync configuration: "
-                    f"{missing}. Set them in config.local.json or your chosen config file."
+                    "No data sources configured. Set at least one source path in "
+                    "config.local.json or your chosen config file."
                 )
                 return 1
 
-            payloads = load_importer_payloads(config)
             all_memory_items = []
             document_count = 0
             conversation_count = 0
             message_count = 0
+            bookmark_count = 0
 
             for payload in payloads:
                 all_memory_items.extend(payload.memory_items)
@@ -139,6 +135,15 @@ def main() -> int:
                     )
                     conversation_count += inserted_conversations
                     message_count += inserted_messages
+                if payload.bookmarks:
+                    bookmark_count += database.sync_bookmarks(
+                        source_key=payload.source_key,
+                        location=payload.location,
+                        bookmarks=payload.bookmarks,
+                    )
+                    all_memory_items.extend(
+                        database.export_bookmark_memory_items(payload.source_key)
+                    )
 
             record_count = database.replace_memory_items(all_memory_items)
             print(
@@ -146,6 +151,7 @@ def main() -> int:
                 f"{document_count} documents, "
                 f"{conversation_count} conversations, "
                 f"{message_count} messages, "
+                f"{bookmark_count} bookmarks, "
                 f"{record_count} unified records"
             )
             return 0
@@ -159,6 +165,7 @@ def main() -> int:
             print(f"item_tags: {stats['item_tag_count']}")
             print(f"conversations: {stats['conversation_count']}")
             print(f"messages: {stats['message_count']}")
+            print(f"bookmarks: {stats['bookmark_count']}")
             print(f"search_index: {stats['search_index_count']}")
             return 0
 
@@ -205,6 +212,10 @@ def main() -> int:
                 print(f"imported_at: {row['imported_at']}")
             if row["checksum"]:
                 print(f"checksum: {row['checksum']}")
+            metadata = json.loads(row["metadata_json"]) if row["metadata_json"] else {}
+            if metadata:
+                print("metadata:")
+                print(json.dumps(metadata, ensure_ascii=False, indent=2, sort_keys=True))
             print("body:")
             print(row["body"])
             return 0

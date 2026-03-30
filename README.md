@@ -5,10 +5,11 @@ A local-first personal database that now has a simple 2.0 foundation.
 For the longer-term direction of the project as a real "Cloud Brain" system,
 see [`ARCHITECTURE.md`](/Users/taoxuan/Desktop/cloud-brain/ARCHITECTURE.md).
 
-It starts with two sources:
+It starts with three sources:
 
 - your blog/journal Markdown files
 - your Codex conversation history
+- your Chrome bookmarks metadata
 
 The project stores everything in SQLite, creates full-text indexes, and also
 builds a unified timeline so you can answer questions like:
@@ -60,7 +61,7 @@ Initialize the database:
 python3 -m personal_brain init
 ```
 
-Sync blog entries and Codex history:
+Sync configured sources:
 
 ```bash
 python3 -m personal_brain sync
@@ -86,7 +87,7 @@ python3 -m personal_brain search "Codex" --kind message
 python3 -m personal_brain search "佛教" --context 120
 ```
 
-Show one combined timeline across blog and Codex:
+Show one combined timeline across blog, Codex, and bookmarks:
 
 ```bash
 python3 -m personal_brain timeline --limit 20
@@ -111,6 +112,12 @@ curl "http://127.0.0.1:8765/search?q=%E6%95%B0%E6%8D%AE%E5%BA%93&limit=5"
 curl "http://127.0.0.1:8765/items/019d403f-5817-7320-b960-4d738388d8f2:55"
 ```
 
+Run the local daily sync script manually:
+
+```bash
+./scripts/daily_sync.sh
+```
+
 ## Configuration
 
 The project now separates shared defaults from machine-specific paths:
@@ -122,7 +129,7 @@ The project now separates shared defaults from machine-specific paths:
 By default:
 
 - the SQLite database lives inside this repo at `data/personal_brain.db`
-- blog and Codex source paths can be supplied in `config.local.json`
+- blog, Codex, and Chrome bookmark source paths can be supplied in `config.local.json`
 - detailed message content is still read from the `rollout_path` recorded in Codex thread history
 
 This makes the repo portable while keeping your private filesystem paths out of the shared project config.
@@ -163,6 +170,17 @@ User and assistant messages extracted from Codex rollout JSONL files. Assistant
 commentary and final answers are stored with their phase so you can filter or
 analyze them later.
 
+### `bookmarks`
+
+Chrome bookmark metadata, including:
+
+- title
+- url
+- folder path
+- added time
+- deleted time when a later sync sees that the bookmark disappeared
+- lifecycle status such as `active` or `deleted`
+
 ### `items`
 
 The canonical memory layer for long-term growth.
@@ -178,6 +196,10 @@ Each item keeps:
 - a checksum
 - an import timestamp
 - metadata for future extensions
+
+For bookmarks, metadata is intentionally lightweight. The system stores bookmark
+metadata as evidence of interest and attention over time, not as a copy of the
+full web page.
 
 ### `records`
 
@@ -215,6 +237,9 @@ Supported filters today:
 - `source_type`
 - `item_type`
 - `tag` on `/timeline` and `/items`
+
+Bookmark items are also available through the same `items`, `timeline`, and
+`search` endpoints once they have been synced.
 
 ## Importer Standard
 
@@ -263,6 +288,46 @@ future WeChat importer should mostly focus on:
 
 Once that payload is returned, the existing sync, search, timeline, and API
 layers can reuse it directly.
+
+## Bookmark Notes
+
+Chrome bookmarks are treated as an interest-tracking source, not a full web
+archive.
+
+That means the database stores:
+
+- when a bookmark was added
+- which url it points to
+- which folder it belonged to
+- whether it is still active
+- when it was first observed as deleted in a later sync
+
+The database does not currently fetch or store the full contents of bookmarked
+pages. This keeps the source lightweight while still preserving evidence of
+your changing interests and attention over time.
+
+## Local Daily Sync
+
+The project now includes a local macOS scheduled sync setup.
+
+Files:
+
+- [`scripts/daily_sync.sh`](/Users/taoxuan/Desktop/cloud-brain/scripts/daily_sync.sh) runs `sync` and `stats`
+- [`launchd/com.taoxuan.cloud-brain-sync.plist`](/Users/taoxuan/Desktop/cloud-brain/launchd/com.taoxuan.cloud-brain-sync.plist) is the LaunchAgent definition
+
+Current schedule:
+
+- every day at `02:00` local time
+
+Logs:
+
+- `logs/daily_sync.log`
+- `logs/launchd.stdout.log`
+- `logs/launchd.stderr.log`
+
+This scheduled sync matters for bookmark deletion tracking. The recorded
+`deleted_at` time is the first sync when the system notices a bookmark is gone,
+so running sync daily keeps that timestamp much closer to the real change.
 
 ### Practical Note
 

@@ -66,6 +66,7 @@ def import_codex_source(state_db_path: Path, config: AppConfig) -> ImporterPaylo
         documents=[],
         conversations=conversations,
         messages=messages,
+        bookmarks=[],
         tags_by_source_id={},
     )
 

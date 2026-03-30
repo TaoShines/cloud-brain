@@ -12,6 +12,7 @@ class AppConfig:
     blog_repo_path: Optional[Path]
     blog_glob: str
     codex_state_db_path: Optional[Path]
+    chrome_bookmarks_path: Optional[Path]
     include_assistant_commentary: bool = True
     include_assistant_final_answers: bool = True
 
@@ -25,6 +26,9 @@ def load_config(config_path: Path) -> AppConfig:
         blog_repo_path=_resolve_path(payload.get("blog_repo_path"), config_dir),
         blog_glob=payload.get("blog_glob", "src/data/blog/**/*.md"),
         codex_state_db_path=_resolve_path(payload.get("codex_state_db_path"), config_dir),
+        chrome_bookmarks_path=_resolve_path(
+            payload.get("chrome_bookmarks_path"), config_dir
+        ),
         include_assistant_commentary=payload.get("include_assistant_commentary", True),
         include_assistant_final_answers=payload.get(
             "include_assistant_final_answers", True

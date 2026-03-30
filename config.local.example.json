@@ -1,4 +1,5 @@
 {
   "blog_repo_path": "/Users/taoxuan/Desktop/my-clean-blog",
-  "codex_state_db_path": "/Users/taoxuan/.codex/state_5.sqlite"
+  "codex_state_db_path": "/Users/taoxuan/.codex/state_5.sqlite",
+  "chrome_bookmarks_path": "/Users/taoxuan/Library/Application Support/Google/Chrome/Default/Bookmarks"
 }

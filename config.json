@@ -3,6 +3,7 @@
   "blog_repo_path": null,
   "blog_glob": "src/data/blog/**/*.md",
   "codex_state_db_path": null,
+  "chrome_bookmarks_path": null,
   "include_assistant_commentary": true,
   "include_assistant_final_answers": true
 }

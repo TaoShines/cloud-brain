@@ -54,6 +54,7 @@ def import_blog_source(blog_repo_path: Path, blog_glob: str) -> ImporterPayload:
         documents=documents,
         conversations=[],
         messages=[],
+        bookmarks=[],
         tags_by_source_id=tags_by_source_id,
     )
 
