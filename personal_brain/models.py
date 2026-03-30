@@ -70,3 +70,15 @@ class MemoryItem:
     parent_id: Optional[str]
     metadata: Dict[str, object]
     tags: List[str]
+
+
+@dataclass
+class ImporterPayload:
+    source_key: str
+    source_type: str
+    location: str
+    memory_items: List[MemoryItem]
+    documents: List[DocumentRecord]
+    conversations: List[ConversationRecord]
+    messages: List[MessageRecord]
+    tags_by_source_id: Dict[str, List[str]]

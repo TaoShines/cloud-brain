@@ -5,13 +5,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from .models import (
-    ConversationRecord,
-    DocumentRecord,
-    MemoryItem,
-    MessageRecord,
-    UnifiedRecord,
-)
+from .models import ConversationRecord, DocumentRecord, MemoryItem, MessageRecord, UnifiedRecord
 
 
 SCHEMA = """
@@ -747,6 +741,10 @@ class Database:
         memory_items = self._build_memory_items(
             document_rows, tags_by_source_id, conversation_rows, message_rows
         )
+        return self.replace_memory_items(memory_items)
+
+    def replace_memory_items(self, memory_items: Iterable[MemoryItem]) -> int:
+        item_rows = list(memory_items)
 
         self.connection.execute("DELETE FROM item_tags")
         self.connection.execute("DELETE FROM items")
@@ -754,7 +752,7 @@ class Database:
         self.connection.execute("DELETE FROM records")
 
         total = 0
-        for item in memory_items:
+        for item in item_rows:
             total += self._insert_item(item)
             total += self._insert_record(
                 UnifiedRecord(

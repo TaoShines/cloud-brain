@@ -216,6 +216,59 @@ Supported filters today:
 - `item_type`
 - `tag` on `/timeline` and `/items`
 
+## Importer Standard
+
+The importer layer is now designed around one shared contract so future sources
+can plug into the same sync pipeline.
+
+Each importer now returns one standardized payload that includes:
+
+- source identity: `source_key`, `source_type`, `location`
+- canonical memory output: `memory_items`
+- optional source-specific rows: `documents`, `conversations`, `messages`
+- source tags: `tags_by_source_id`
+
+This matters because a new source should only need to solve one local problem:
+how to parse its own raw data and map it into canonical `MemoryItem` rows.
+
+The rest of the system should stay the same:
+
+- sync orchestration
+- storage in SQLite
+- timeline and show commands
+- search index
+- local read API
+
+### Importer Flow
+
+When adding a new source later, the expected steps are:
+
+1. Read the raw source files or export data.
+2. Parse source-specific fields.
+3. Map each record into one or more canonical `MemoryItem` values.
+4. Add source-specific metadata into `metadata`.
+5. Return one importer payload and register it in the importer loader.
+
+### Why This Helps Future Sources
+
+This is especially important for larger future sources like WeChat history.
+
+Without a standard importer contract, each new source would force ad hoc changes
+throughout the CLI, sync logic, and database layer. With the current design, a
+future WeChat importer should mostly focus on:
+
+- parsing exported chat data
+- mapping chats and messages into `MemoryItem` rows
+- attaching metadata like sender, group, and message type
+
+Once that payload is returned, the existing sync, search, timeline, and API
+layers can reuse it directly.
+
+### Practical Note
+
+When testing sync manually, run `sync` first and then run `stats` or `timeline`
+after it finishes. Running them in parallel can show stale counts during a sync.
+
 ## Next expansions
 
 - add bookmarks, screenshots, and reading notes

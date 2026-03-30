@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from ..models import DocumentRecord
+from ..models import DocumentRecord, ImporterPayload, MemoryItem
 
 
 def import_blog(
@@ -41,6 +41,57 @@ def import_blog(
         tags_by_source_id[source_id] = tags
 
     return documents, tags_by_source_id
+
+
+def import_blog_source(blog_repo_path: Path, blog_glob: str) -> ImporterPayload:
+    documents, tags_by_source_id = import_blog(blog_repo_path, blog_glob)
+    memory_items = build_blog_memory_items(documents, tags_by_source_id)
+    return ImporterPayload(
+        source_key="blog_repo",
+        source_type="blog",
+        location=str(blog_repo_path),
+        memory_items=memory_items,
+        documents=documents,
+        conversations=[],
+        messages=[],
+        tags_by_source_id=tags_by_source_id,
+    )
+
+
+def build_blog_memory_items(
+    documents: List[DocumentRecord], tags_by_source_id: Dict[str, List[str]]
+) -> List[MemoryItem]:
+    items: List[MemoryItem] = []
+    for document in documents:
+        items.append(
+            MemoryItem(
+                item_id=document.source_id,
+                source_key="blog_repo",
+                source_type="blog",
+                external_id=document.source_id,
+                item_type=document.doc_type,
+                title=document.title,
+                body=document.content,
+                created_at=document.created_at,
+                updated_at=document.updated_at,
+                imported_at=None,
+                checksum=build_checksum(
+                    document.source_id,
+                    document.title,
+                    document.content,
+                    document.updated_at,
+                ),
+                location=document.source_path,
+                parent_id=None,
+                metadata={
+                    "slug": document.slug,
+                    "summary": document.summary,
+                    "doc_type": document.doc_type,
+                },
+                tags=tags_by_source_id.get(document.source_id, []),
+            )
+        )
+    return items
 
 
 def split_frontmatter(text: str) -> Tuple[str, str]:
@@ -110,3 +161,10 @@ def normalize_datetime(value: object) -> Optional[str]:
         return datetime.fromisoformat(cleaned).isoformat()
     except ValueError:
         return value
+
+
+def build_checksum(*parts: Optional[str]) -> str:
+    import hashlib
+
+    normalized = "||".join("" if part is None else str(part) for part in parts)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()

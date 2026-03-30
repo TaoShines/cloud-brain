@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from ..config import AppConfig
-from ..models import ConversationRecord, MessageRecord
+from ..models import ConversationRecord, ImporterPayload, MemoryItem, MessageRecord
 
 
 def import_codex_history(
@@ -53,6 +53,95 @@ def import_codex_history(
             messages.extend(parse_rollout_messages(rollout_path, row["id"], config))
 
     return conversations, messages
+
+
+def import_codex_source(state_db_path: Path, config: AppConfig) -> ImporterPayload:
+    conversations, messages = import_codex_history(state_db_path, config)
+    memory_items = build_codex_memory_items(conversations, messages)
+    return ImporterPayload(
+        source_key="codex_history",
+        source_type="codex",
+        location=str(state_db_path),
+        memory_items=memory_items,
+        documents=[],
+        conversations=conversations,
+        messages=messages,
+        tags_by_source_id={},
+    )
+
+
+def build_codex_memory_items(
+    conversations: List[ConversationRecord], messages: List[MessageRecord]
+) -> List[MemoryItem]:
+    items: List[MemoryItem] = []
+    conversation_locations = {
+        conversation.thread_id: conversation.rollout_path for conversation in conversations
+    }
+
+    for conversation in conversations:
+        items.append(
+            MemoryItem(
+                item_id=conversation.thread_id,
+                source_key="codex_history",
+                source_type="codex",
+                external_id=conversation.thread_id,
+                item_type="conversation",
+                title=conversation.title,
+                body=conversation.title,
+                created_at=conversation.created_at,
+                updated_at=conversation.updated_at,
+                imported_at=None,
+                checksum=build_checksum(
+                    conversation.thread_id,
+                    conversation.title,
+                    conversation.cwd,
+                    conversation.updated_at,
+                ),
+                location=conversation.rollout_path,
+                parent_id=None,
+                metadata={
+                    "cwd": conversation.cwd,
+                    "model": conversation.model,
+                    "source": conversation.source,
+                },
+                tags=["codex", "conversation"],
+            )
+        )
+
+    for message in messages:
+        item_id = f"{message.thread_id}:{message.message_index}"
+        role_title = message.role if not message.phase else f"{message.role} {message.phase}"
+        items.append(
+            MemoryItem(
+                item_id=item_id,
+                source_key="codex_history",
+                source_type="codex",
+                external_id=item_id,
+                item_type="message",
+                title=role_title,
+                body=message.content,
+                created_at=message.created_at,
+                updated_at=message.created_at,
+                imported_at=None,
+                checksum=build_checksum(
+                    item_id,
+                    role_title,
+                    message.content,
+                    message.created_at,
+                ),
+                location=conversation_locations.get(message.thread_id),
+                parent_id=message.thread_id,
+                metadata={
+                    "thread_id": message.thread_id,
+                    "message_index": message.message_index,
+                    "role": message.role,
+                    "phase": message.phase,
+                },
+                tags=["codex", message.role] + ([message.phase] if message.phase else []),
+            )
+        )
+
+    return items
 
 
 def parse_rollout_messages(
@@ -120,3 +209,10 @@ def normalize_unix(value: object) -> Optional[str]:
     except (TypeError, ValueError):
         return None
     return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()
+
+
+def build_checksum(*parts: Optional[str]) -> str:
+    import hashlib
+
+    normalized = "||".join("" if part is None else str(part) for part in parts)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()

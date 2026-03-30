@@ -7,8 +7,7 @@ from typing import Optional
 from .api import run_api_server
 from .config import load_config
 from .database import Database
-from .importers.blog import import_blog
-from .importers.codex import import_codex_history
+from .importers import load_importer_payloads
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -116,30 +115,32 @@ def main() -> int:
                 )
                 return 1
 
-            blog_documents, blog_tags = import_blog(
-                config.blog_repo_path, config.blog_glob
-            )
-            conversation_rows, message_rows = import_codex_history(
-                config.codex_state_db_path, config
-            )
-            document_count = database.replace_documents(
-                source_key="blog_repo",
-                location=str(config.blog_repo_path),
-                documents=blog_documents,
-                tags_by_source_id=blog_tags,
-            )
-            conversation_count, message_count = database.replace_conversations(
-                source_key="codex_history",
-                location=str(config.codex_state_db_path),
-                conversations=conversation_rows,
-                messages=message_rows,
-            )
-            record_count = database.rebuild_unified_records(
-                documents=blog_documents,
-                tags_by_source_id=blog_tags,
-                conversations=conversation_rows,
-                messages=message_rows,
-            )
+            payloads = load_importer_payloads(config)
+            all_memory_items = []
+            document_count = 0
+            conversation_count = 0
+            message_count = 0
+
+            for payload in payloads:
+                all_memory_items.extend(payload.memory_items)
+                if payload.documents:
+                    document_count += database.replace_documents(
+                        source_key=payload.source_key,
+                        location=payload.location,
+                        documents=payload.documents,
+                        tags_by_source_id=payload.tags_by_source_id,
+                    )
+                if payload.conversations or payload.messages:
+                    inserted_conversations, inserted_messages = database.replace_conversations(
+                        source_key=payload.source_key,
+                        location=payload.location,
+                        conversations=payload.conversations,
+                        messages=payload.messages,
+                    )
+                    conversation_count += inserted_conversations
+                    message_count += inserted_messages
+
+            record_count = database.replace_memory_items(all_memory_items)
             print(
                 "Synced "
                 f"{document_count} documents, "
