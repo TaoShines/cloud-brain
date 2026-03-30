@@ -1,0 +1,8 @@
+{
+  "database_path": "/Users/taoxuan/Documents/Playground/data/personal_brain.db",
+  "blog_repo_path": "/Users/taoxuan/Desktop/my-clean-blog",
+  "blog_glob": "src/data/blog/**/*.md",
+  "codex_state_db_path": "/Users/taoxuan/.codex/state_5.sqlite",
+  "include_assistant_commentary": true,
+  "include_assistant_final_answers": true
+}
