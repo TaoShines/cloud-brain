@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 from typing import Optional
 
+from .api import run_api_server
 from .config import load_config
 from .database import Database
 from .importers.blog import import_blog
@@ -22,6 +23,20 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("init", help="Initialize the SQLite database")
     subparsers.add_parser("sync", help="Import all configured data sources")
     subparsers.add_parser("stats", help="Show record counts")
+    serve_parser = subparsers.add_parser(
+        "serve", help="Start the local read-only HTTP API"
+    )
+    serve_parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host interface for the API server",
+    )
+    serve_parser.add_argument(
+        "--port",
+        type=int,
+        default=8765,
+        help="Port for the API server",
+    )
 
     timeline_parser = subparsers.add_parser(
         "timeline", help="Show a cross-source timeline of your records"
@@ -88,6 +103,19 @@ def main() -> int:
         database.init()
 
         if args.command == "sync":
+            missing_sources = []
+            if not config.blog_repo_path:
+                missing_sources.append("blog_repo_path")
+            if not config.codex_state_db_path:
+                missing_sources.append("codex_state_db_path")
+            if missing_sources:
+                missing = ", ".join(missing_sources)
+                print(
+                    "Missing sync configuration: "
+                    f"{missing}. Set them in config.local.json or your chosen config file."
+                )
+                return 1
+
             blog_documents, blog_tags = import_blog(
                 config.blog_repo_path, config.blog_glob
             )
@@ -124,11 +152,18 @@ def main() -> int:
         if args.command == "stats":
             stats = database.stats()
             print(f"records: {stats['record_count']}")
+            print(f"items: {stats['item_count']}")
             print(f"documents: {stats['document_count']}")
             print(f"document_tags: {stats['document_tag_count']}")
+            print(f"item_tags: {stats['item_tag_count']}")
             print(f"conversations: {stats['conversation_count']}")
             print(f"messages: {stats['message_count']}")
             print(f"search_index: {stats['search_index_count']}")
+            return 0
+
+        if args.command == "serve":
+            database.close()
+            run_api_server(config.database_path, host=args.host, port=args.port)
             return 0
 
         if args.command == "timeline":
@@ -161,6 +196,14 @@ def main() -> int:
                 print(f"location: {row['location']}")
             if row["parent_key"]:
                 print(f"parent: {row['parent_key']}")
+            if row["source_key"]:
+                print(f"source_key: {row['source_key']}")
+            if row["external_id"]:
+                print(f"external_id: {row['external_id']}")
+            if row["imported_at"]:
+                print(f"imported_at: {row['imported_at']}")
+            if row["checksum"]:
+                print(f"checksum: {row['checksum']}")
             print("body:")
             print(row["body"])
             return 0

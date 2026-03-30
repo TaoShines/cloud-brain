@@ -2,6 +2,9 @@
 
 A local-first personal database that now has a simple 2.0 foundation.
 
+For the longer-term direction of the project as a real "Cloud Brain" system,
+see [`ARCHITECTURE.md`](/Users/taoxuan/Desktop/cloud-brain/ARCHITECTURE.md).
+
 It starts with two sources:
 
 - your blog/journal Markdown files
@@ -43,6 +46,14 @@ personal_brain/
 
 ## Quick start
 
+Optional but recommended: create your private local config override first.
+
+```bash
+cp config.local.example.json config.local.json
+```
+
+Then update `config.local.json` with your own local source paths.
+
 Initialize the database:
 
 ```bash
@@ -59,6 +70,12 @@ View basic stats:
 
 ```bash
 python3 -m personal_brain stats
+```
+
+Start the local read-only API:
+
+```bash
+python3 -m personal_brain serve
 ```
 
 Search across blog entries, thread titles, user questions, and assistant replies:
@@ -84,29 +101,46 @@ python3 -m personal_brain show "blog:src/data/blog/_2026-03-30.md"
 python3 -m personal_brain show "019d403f-5817-7320-b960-4d738388d8f2:48"
 ```
 
-## Current assumptions
+Query the local API from another AI tool or script:
 
-- Blog content is imported from `/Users/taoxuan/Desktop/my-clean-blog`
-- Codex history is imported from `/Users/taoxuan/.codex/state_5.sqlite`
-- Detailed message content is read from the `rollout_path` recorded in Codex
-  thread history
+```bash
+curl http://127.0.0.1:8765/health
+curl "http://127.0.0.1:8765/stats"
+curl "http://127.0.0.1:8765/timeline?limit=5&source_type=codex"
+curl "http://127.0.0.1:8765/search?q=%E6%95%B0%E6%8D%AE%E5%BA%93&limit=5"
+curl "http://127.0.0.1:8765/items/019d403f-5817-7320-b960-4d738388d8f2:55"
+```
 
-Edit [`config.json`](/Users/taoxuan/Documents/Playground/config.json) if those
-paths change.
+## Configuration
+
+The project now separates shared defaults from machine-specific paths:
+
+- [`config.json`](/Users/taoxuan/Desktop/cloud-brain/config.json) is the tracked project config
+- `config.local.json` is your private local override and is ignored by git
+- [`config.local.example.json`](/Users/taoxuan/Desktop/cloud-brain/config.local.example.json) shows the expected local fields
+
+By default:
+
+- the SQLite database lives inside this repo at `data/personal_brain.db`
+- blog and Codex source paths can be supplied in `config.local.json`
+- detailed message content is still read from the `rollout_path` recorded in Codex thread history
+
+This makes the repo portable while keeping your private filesystem paths out of the shared project config.
 
 ## What changed in 2.0
 
 Compared with the first version, the main difference is that your data is no
 longer only stored as separate technical tables. It is also projected into one
-unified `records` layer.
+unified memory layer.
 
 That means:
 
-- blog posts and diary entries become records
-- Codex conversations become records
-- individual user and assistant messages become records
+- blog posts and diary entries become memory items
+- Codex conversations become memory items
+- individual user and assistant messages become memory items
 - everything can now be viewed in a single timeline
 - each record keeps its source location so you can trace it back
+- each item also keeps a stable source key, external id, checksum, and import timestamp
 
 This is the first step toward a larger personal system where more sources can be
 added later without changing how you use it.
@@ -129,10 +163,26 @@ User and assistant messages extracted from Codex rollout JSONL files. Assistant
 commentary and final answers are stored with their phase so you can filter or
 analyze them later.
 
+### `items`
+
+The canonical memory layer for long-term growth.
+
+Each item keeps:
+
+- a stable item id
+- a source key and external source id
+- a type
+- timestamps
+- the original location
+- the original content
+- a checksum
+- an import timestamp
+- metadata for future extensions
+
 ### `records`
 
-A unified cross-source layer that lets you treat diaries, blog posts,
-conversations, and messages as one timeline of personal data.
+A compatibility projection that keeps the current cross-source timeline and show
+commands simple while the canonical `items` layer becomes the real foundation.
 
 Each record keeps:
 
@@ -145,6 +195,26 @@ Each record keeps:
 ### `search_index`
 
 An FTS5 index that unifies your searchable content for fast keyword search.
+
+## Local Read API
+
+The project now exposes a minimal read-only HTTP API for scripts and AI tools.
+
+Current endpoints:
+
+- `GET /health`
+- `GET /stats`
+- `GET /timeline`
+- `GET /items`
+- `GET /items/{item_id}`
+- `GET /search?q=...`
+
+Supported filters today:
+
+- `limit`
+- `source_type`
+- `item_type`
+- `tag` on `/timeline` and `/items`
 
 ## Next expansions
 

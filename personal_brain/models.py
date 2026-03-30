@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -50,4 +50,23 @@ class UnifiedRecord:
     updated_at: Optional[str]
     location: Optional[str]
     parent_key: Optional[str]
+    tags: List[str]
+
+
+@dataclass
+class MemoryItem:
+    item_id: str
+    source_key: str
+    source_type: str
+    external_id: str
+    item_type: str
+    title: str
+    body: str
+    created_at: Optional[str]
+    updated_at: Optional[str]
+    imported_at: Optional[str]
+    checksum: str
+    location: Optional[str]
+    parent_id: Optional[str]
+    metadata: Dict[str, object]
     tags: List[str]
