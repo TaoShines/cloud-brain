@@ -4,6 +4,7 @@ import json
 import sqlite3
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+from urllib.parse import urlparse
 
 from .models import (
     BookmarkRecord,
@@ -457,6 +458,7 @@ class Database:
                     location=row["source_path"],
                     parent_id=None,
                     metadata={
+                        "domain": self._extract_domain(row["url"]),
                         "url": row["url"],
                         "folder_path": row["folder_path"],
                         "status": status,
@@ -557,6 +559,11 @@ class Database:
         limit: int = 10,
         source_type: Optional[str] = None,
         item_type: Optional[str] = None,
+        tag: Optional[str] = None,
+        status: Optional[str] = None,
+        domain: Optional[str] = None,
+        created_after: Optional[str] = None,
+        created_before: Optional[str] = None,
     ) -> List[sqlite3.Row]:
         sql = """
             SELECT
@@ -573,8 +580,7 @@ class Database:
                 items.checksum,
                 items.location,
                 items.parent_id,
-                items.metadata_json,
-                snippet(search_index, 3, '[', ']', ' ... ', 16) AS snippet
+                items.metadata_json
             FROM search_index
             JOIN items ON items.item_id = search_index.entity_key
             WHERE search_index MATCH ?
@@ -587,6 +593,28 @@ class Database:
         if item_type:
             sql += " AND items.item_type = ?"
             parameters.append(item_type)
+        if tag:
+            sql += """
+                AND EXISTS (
+                    SELECT 1
+                    FROM item_tags
+                    WHERE item_tags.item_id = items.id
+                      AND item_tags.tag = ?
+                )
+            """
+            parameters.append(tag)
+        if status:
+            sql += " AND json_extract(items.metadata_json, '$.status') = ?"
+            parameters.append(status)
+        if domain:
+            sql += " AND lower(json_extract(items.metadata_json, '$.domain')) = lower(?)"
+            parameters.append(domain)
+        if created_after:
+            sql += " AND items.created_at >= ?"
+            parameters.append(created_after)
+        if created_before:
+            sql += " AND items.created_at <= ?"
+            parameters.append(created_before)
         sql += " ORDER BY rank LIMIT ?"
         parameters.append(limit)
         rows = self.connection.execute(sql, parameters).fetchall()
@@ -639,6 +667,18 @@ class Database:
         if item_type:
             fallback_sql += " AND item_type = ?"
             fallback_parameters.append(item_type)
+        if status:
+            fallback_sql += " AND json_extract(metadata_json, '$.status') = ?"
+            fallback_parameters.append(status)
+        if domain:
+            fallback_sql += " AND lower(json_extract(metadata_json, '$.domain')) = lower(?)"
+            fallback_parameters.append(domain)
+        if created_after:
+            fallback_sql += " AND created_at >= ?"
+            fallback_parameters.append(created_after)
+        if created_before:
+            fallback_sql += " AND created_at <= ?"
+            fallback_parameters.append(created_before)
         fallback_sql += " ORDER BY created_at DESC, id DESC LIMIT ?"
         fallback_parameters.append(limit)
         return self.connection.execute(fallback_sql, fallback_parameters).fetchall()
@@ -646,9 +686,14 @@ class Database:
     def list_items(
         self,
         limit: int = 20,
+        offset: int = 0,
         source_type: Optional[str] = None,
         item_type: Optional[str] = None,
         tag: Optional[str] = None,
+        status: Optional[str] = None,
+        domain: Optional[str] = None,
+        created_after: Optional[str] = None,
+        created_before: Optional[str] = None,
     ) -> List[sqlite3.Row]:
         sql = """
             SELECT
@@ -683,28 +728,51 @@ class Database:
         if tag:
             sql += " AND item_tags.tag = ?"
             parameters.append(tag)
+        if status:
+            sql += " AND json_extract(items.metadata_json, '$.status') = ?"
+            parameters.append(status)
+        if domain:
+            sql += " AND lower(json_extract(items.metadata_json, '$.domain')) = lower(?)"
+            parameters.append(domain)
+        if created_after:
+            sql += " AND items.created_at >= ?"
+            parameters.append(created_after)
+        if created_before:
+            sql += " AND items.created_at <= ?"
+            parameters.append(created_before)
         sql += """
             ORDER BY
                 CASE WHEN items.created_at IS NULL THEN 1 ELSE 0 END,
                 items.created_at DESC,
                 items.id DESC
-            LIMIT ?
+            LIMIT ? OFFSET ?
         """
         parameters.append(limit)
+        parameters.append(max(0, offset))
         return self.connection.execute(sql, parameters).fetchall()
 
     def item_timeline(
         self,
         limit: int = 20,
+        offset: int = 0,
         source_type: Optional[str] = None,
         item_type: Optional[str] = None,
         tag: Optional[str] = None,
+        status: Optional[str] = None,
+        domain: Optional[str] = None,
+        created_after: Optional[str] = None,
+        created_before: Optional[str] = None,
     ) -> List[sqlite3.Row]:
         rows = self.list_items(
             limit=limit,
+            offset=offset,
             source_type=source_type,
             item_type=item_type,
             tag=tag,
+            status=status,
+            domain=domain,
+            created_after=created_after,
+            created_before=created_before,
         )
         return rows
 
@@ -1200,3 +1268,10 @@ class Database:
         if isinstance(value, dict):
             return value
         return {}
+
+    def _extract_domain(self, url: Optional[str]) -> Optional[str]:
+        if not url:
+            return None
+        parsed = urlparse(url)
+        domain = parsed.netloc.strip().lower()
+        return domain or None

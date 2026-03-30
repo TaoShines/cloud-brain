@@ -5,6 +5,22 @@ A local-first personal database that now has a simple 2.0 foundation.
 For the longer-term direction of the project as a real "Cloud Brain" system,
 see [`ARCHITECTURE.md`](/Users/taoxuan/Desktop/cloud-brain/ARCHITECTURE.md).
 
+## Current Direction
+
+This project is becoming a personal memory backend for long-term AI use.
+
+The working direction is:
+
+- keep your source data in its original tools and folders
+- sync it into one durable SQLite memory database
+- normalize everything into a canonical `items` layer
+- expose the memory layer through a local API
+- improve retrieval so future AI clients can query memory precisely instead of
+  reading everything at once
+
+At this stage, the project is optimized more for "AI can reliably read this
+memory system later" than for "humans browse it manually every day".
+
 It starts with three sources:
 
 - your blog/journal Markdown files
@@ -234,12 +250,26 @@ Current endpoints:
 Supported filters today:
 
 - `limit`
+- `offset`
 - `source_type`
 - `item_type`
-- `tag` on `/timeline` and `/items`
+- `tag`
+- `status`
+- `domain`
+- `created_after`
+- `created_before`
 
 Bookmark items are also available through the same `items`, `timeline`, and
 `search` endpoints once they have been synced.
+
+Examples for AI-oriented retrieval:
+
+```bash
+curl "http://127.0.0.1:8765/items?item_type=bookmark&status=active&limit=20"
+curl "http://127.0.0.1:8765/items?item_type=bookmark&domain=www.youtube.com"
+curl "http://127.0.0.1:8765/timeline?source_type=bookmark&created_after=2026-03-01T00:00:00+00:00"
+curl "http://127.0.0.1:8765/search?q=AI&item_type=bookmark&status=active&limit=10"
+```
 
 ## Importer Standard
 
@@ -306,6 +336,24 @@ The database does not currently fetch or store the full contents of bookmarked
 pages. This keeps the source lightweight while still preserving evidence of
 your changing interests and attention over time.
 
+## What Exists Today
+
+The current system already includes:
+
+- blog and diary import from your blog repository
+- Codex conversation and message import
+- Chrome bookmark import with `added_at`, `status`, and future `deleted_at`
+  tracking
+- canonical `items` storage
+- compatibility `records` projection for timeline and show commands
+- full-text search
+- a local read-only API for AI tools and scripts
+- daily local sync on your Mac via `launchd`
+
+This means the core foundation is already in place. The main work ahead is
+continuing to strengthen retrieval, source expansion, and AI calling patterns
+on top of the existing memory backend.
+
 ## Local Daily Sync
 
 The project now includes a local macOS scheduled sync setup.
@@ -334,9 +382,16 @@ so running sync daily keeps that timestamp much closer to the real change.
 When testing sync manually, run `sync` first and then run `stats` or `timeline`
 after it finishes. Running them in parallel can show stale counts during a sync.
 
-## Next expansions
+## Near-Term Priorities
 
-- add bookmarks, screenshots, and reading notes
-- attach embeddings for semantic retrieval
+- keep README and architecture docs current so new threads can resume quickly
+- continue improving AI-oriented retrieval filters and response stability
+- preserve importer standardization so new sources do not create ad hoc logic
+- defer heavy UI work until the memory backend is more mature
+
+## Next Expansions
+
+- add future sources such as WeChat history, screenshots, and reading notes
+- attach embeddings for semantic retrieval when exact filters are no longer enough
+- define a more explicit AI query protocol on top of the current API
 - generate periodic summaries from your own archive
-- build a small local UI on top of the same SQLite database

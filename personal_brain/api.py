@@ -45,14 +45,24 @@ def build_handler(db_path):
 
                 if parsed.path == "/timeline":
                     limit = _int_arg(query, "limit", 20)
+                    offset = _int_arg(query, "offset", 0, minimum=0)
                     source_type = _first_arg(query, "source_type")
                     item_type = _first_arg(query, "item_type")
                     tag = _first_arg(query, "tag")
+                    status = _first_arg(query, "status")
+                    domain = _first_arg(query, "domain")
+                    created_after = _first_arg(query, "created_after")
+                    created_before = _first_arg(query, "created_before")
                     rows = database.item_timeline(
                         limit=limit,
+                        offset=offset,
                         source_type=source_type,
                         item_type=item_type,
                         tag=tag,
+                        status=status,
+                        domain=domain,
+                        created_after=created_after,
+                        created_before=created_before,
                     )
                     items = [database.serialize_item(row, include_body=False) for row in rows]
                     self._write_json(200, {"items": items, "count": len(items)})
@@ -60,14 +70,24 @@ def build_handler(db_path):
 
                 if parsed.path == "/items":
                     limit = _int_arg(query, "limit", 20)
+                    offset = _int_arg(query, "offset", 0, minimum=0)
                     source_type = _first_arg(query, "source_type")
                     item_type = _first_arg(query, "item_type")
                     tag = _first_arg(query, "tag")
+                    status = _first_arg(query, "status")
+                    domain = _first_arg(query, "domain")
+                    created_after = _first_arg(query, "created_after")
+                    created_before = _first_arg(query, "created_before")
                     rows = database.list_items(
                         limit=limit,
+                        offset=offset,
                         source_type=source_type,
                         item_type=item_type,
                         tag=tag,
+                        status=status,
+                        domain=domain,
+                        created_after=created_after,
+                        created_before=created_before,
                     )
                     items = [database.serialize_item(row, include_body=False) for row in rows]
                     self._write_json(200, {"items": items, "count": len(items)})
@@ -90,11 +110,21 @@ def build_handler(db_path):
                     limit = _int_arg(query, "limit", 10)
                     source_type = _first_arg(query, "source_type")
                     item_type = _first_arg(query, "item_type")
+                    tag = _first_arg(query, "tag")
+                    status = _first_arg(query, "status")
+                    domain = _first_arg(query, "domain")
+                    created_after = _first_arg(query, "created_after")
+                    created_before = _first_arg(query, "created_before")
                     rows = database.search_items(
                         text,
                         limit=limit,
                         source_type=source_type,
                         item_type=item_type,
+                        tag=tag,
+                        status=status,
+                        domain=domain,
+                        created_after=created_after,
+                        created_before=created_before,
                     )
                     items = [database.serialize_item(row, include_body=False) for row in rows]
                     self._write_json(
@@ -131,7 +161,9 @@ def _first_arg(query: Dict[str, list[str]], key: str) -> Optional[str]:
     return value or None
 
 
-def _int_arg(query: Dict[str, list[str]], key: str, default: int) -> int:
+def _int_arg(
+    query: Dict[str, list[str]], key: str, default: int, minimum: int = 1, maximum: int = 200
+) -> int:
     raw = _first_arg(query, key)
     if raw is None:
         return default
@@ -139,4 +171,4 @@ def _int_arg(query: Dict[str, list[str]], key: str, default: int) -> int:
         value = int(raw)
     except ValueError:
         return default
-    return max(1, min(value, 200))
+    return max(minimum, min(value, maximum))
