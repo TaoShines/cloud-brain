@@ -65,8 +65,8 @@ def build_parser() -> argparse.ArgumentParser:
     search_parser.add_argument("query", help="FTS query string")
     search_parser.add_argument(
         "--kind",
-        choices=["document", "conversation", "message"],
-        help="Optional entity type filter",
+        choices=["blog", "diary", "conversation", "message", "bookmark"],
+        help="Optional item type filter",
     )
     search_parser.add_argument(
         "--limit",
@@ -221,27 +221,21 @@ def main() -> int:
             return 0
 
         if args.command == "search":
-            rows = database.search(args.query, entity_type=args.kind, limit=args.limit)
+            rows = database.search_items(args.query, item_type=args.kind, limit=args.limit)
             for row in rows:
-                print(f"[{row['entity_type']}] {row['entity_key']}")
+                print(f"[{row['item_type']}] {row['item_id']}")
                 if row["created_at"]:
                     print(f"time: {row['created_at']}")
                 print(f"title: {row['title']}")
-                details = database.get_entity_details(row["entity_type"], row["entity_key"])
-                location = None
-                if details:
-                    location = build_location(
-                        row["entity_type"], details["location"], details["content"], args.query
-                    )
-                    snippet = build_context_snippet(details["content"], args.query, args.context)
-                else:
+                snippet = build_context_snippet(row["body"], args.query, args.context)
+                if not snippet:
                     snippet = row["snippet"]
                 print(f"match: {snippet}")
-                if location:
-                    print(f"location: {location}")
-                if args.show_full and details and details["content"]:
+                if row["location"]:
+                    print(f"location: {row['location']}")
+                if args.show_full and row["body"]:
                     print("full:")
-                    print(details["content"])
+                    print(row["body"])
                 print()
             return 0
     finally:
