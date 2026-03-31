@@ -54,6 +54,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--status",
         help="Optional run status filter",
     )
+    subparsers.add_parser(
+        "source-health",
+        help="Show source freshness and latest sync status",
+    )
     serve_parser = subparsers.add_parser(
         "serve", help="Start the local HTTP API"
     )
@@ -261,6 +265,8 @@ def main() -> int:
                 print(f"started_at: {payload['started_at']}")
                 if payload["finished_at"]:
                     print(f"finished_at: {payload['finished_at']}")
+                if payload["duration_seconds"] is not None:
+                    print(f"duration_seconds: {payload['duration_seconds']}")
                 if payload["source_type"]:
                     print(f"source_type: {payload['source_type']}")
                 if payload["location"]:
@@ -270,8 +276,38 @@ def main() -> int:
                 if payload["stats"]:
                     print("stats:")
                     print(json.dumps(payload["stats"], ensure_ascii=False, indent=2, sort_keys=True))
+                if payload["warnings"]:
+                    print("warnings:")
+                    print(json.dumps(payload["warnings"], ensure_ascii=False, indent=2))
                 if payload["error_message"]:
                     print(f"error: {payload['error_message']}")
+                print()
+            return 0
+
+        if args.command == "source-health":
+            rows = database.list_source_health()
+            for row in rows:
+                payload = database.serialize_source_health(row)
+                print(f"[{payload['last_run_status']}] {payload['source_key']}")
+                print(f"source_type: {payload['source_type']}")
+                if payload["last_synced_at"]:
+                    print(f"last_synced_at: {payload['last_synced_at']}")
+                if payload["last_success_at"]:
+                    print(f"last_success_at: {payload['last_success_at']}")
+                if payload["last_run_started_at"]:
+                    print(f"last_run_started_at: {payload['last_run_started_at']}")
+                if payload["last_run_finished_at"]:
+                    print(f"last_run_finished_at: {payload['last_run_finished_at']}")
+                if payload["location"]:
+                    print(f"location: {payload['location']}")
+                if payload["last_stats"]:
+                    print("last_stats:")
+                    print(json.dumps(payload["last_stats"], ensure_ascii=False, indent=2, sort_keys=True))
+                if payload["last_warnings"]:
+                    print("last_warnings:")
+                    print(json.dumps(payload["last_warnings"], ensure_ascii=False, indent=2))
+                if payload["last_error_message"]:
+                    print(f"last_error: {payload['last_error_message']}")
                 print()
             return 0
 

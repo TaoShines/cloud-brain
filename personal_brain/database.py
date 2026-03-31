@@ -197,6 +197,13 @@ MIGRATIONS: List[Tuple[str, str]] = [
         ON sync_runs(status);
         """,
     ),
+    (
+        "2026_04_01_003_sync_run_warnings",
+        """
+        ALTER TABLE sync_runs
+        ADD COLUMN warnings_json TEXT NOT NULL DEFAULT '[]';
+        """,
+    ),
 ]
 
 
@@ -236,7 +243,11 @@ class Database:
         for version, sql in MIGRATIONS:
             if version in applied_versions:
                 continue
-            self.connection.executescript(sql)
+            try:
+                self.connection.executescript(sql)
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    raise
             self.connection.execute(
                 """
                 INSERT INTO schema_migrations (version, applied_at)
@@ -1074,6 +1085,7 @@ class Database:
         status: str,
         stats: Optional[Dict[str, object]] = None,
         error_message: Optional[str] = None,
+        warnings: Optional[List[str]] = None,
     ) -> None:
         self.connection.execute(
             """
@@ -1081,7 +1093,8 @@ class Database:
             SET status = ?,
                 finished_at = ?,
                 error_message = ?,
-                stats_json = ?
+                stats_json = ?,
+                warnings_json = ?
             WHERE id = ?
             """,
             (
@@ -1089,6 +1102,7 @@ class Database:
                 datetime.now(timezone.utc).isoformat(),
                 error_message,
                 json.dumps(stats or {}, ensure_ascii=True, sort_keys=True),
+                json.dumps(warnings or [], ensure_ascii=True),
                 run_id,
             ),
         )
@@ -1112,7 +1126,8 @@ class Database:
                 started_at,
                 finished_at,
                 error_message,
-                stats_json
+                stats_json,
+                warnings_json
             FROM sync_runs
             WHERE 1 = 1
         """
@@ -1131,6 +1146,20 @@ class Database:
         return self.connection.execute(sql, parameters).fetchall()
 
     def serialize_sync_run(self, row: sqlite3.Row) -> Dict[str, Any]:
+        duration_seconds = None
+        started_at = row["started_at"]
+        finished_at = row["finished_at"]
+        if started_at and finished_at:
+            try:
+                duration_seconds = round(
+                    (
+                        datetime.fromisoformat(finished_at.replace("Z", "+00:00"))
+                        - datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+                    ).total_seconds(),
+                    3,
+                )
+            except ValueError:
+                duration_seconds = None
         return {
             "id": row["id"],
             "parent_run_id": row["parent_run_id"],
@@ -1139,10 +1168,71 @@ class Database:
             "source_type": row["source_type"],
             "location": row["location"],
             "status": row["status"],
-            "started_at": row["started_at"],
-            "finished_at": row["finished_at"],
+            "started_at": started_at,
+            "finished_at": finished_at,
+            "duration_seconds": duration_seconds,
             "error_message": row["error_message"],
-            "stats": self._decode_metadata(row["stats_json"]),
+            "stats": self._decode_raw_metadata(row["stats_json"]),
+            "warnings": self._decode_string_list(row["warnings_json"]),
+        }
+
+    def list_source_health(self) -> List[sqlite3.Row]:
+        return self.connection.execute(
+            """
+            WITH latest_source_runs AS (
+                SELECT
+                    sync_runs.*,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY sync_runs.source_key
+                        ORDER BY sync_runs.started_at DESC, sync_runs.id DESC
+                    ) AS row_number
+                FROM sync_runs
+                WHERE sync_runs.source_key IS NOT NULL
+            ),
+            latest_success_runs AS (
+                SELECT
+                    source_key,
+                    MAX(finished_at) AS last_success_at
+                FROM sync_runs
+                WHERE source_key IS NOT NULL
+                  AND status = 'success'
+                GROUP BY source_key
+            )
+            SELECT
+                sources.source_key,
+                sources.source_type,
+                sources.location,
+                sources.last_synced_at,
+                latest_source_runs.status AS last_run_status,
+                latest_source_runs.started_at AS last_run_started_at,
+                latest_source_runs.finished_at AS last_run_finished_at,
+                latest_source_runs.error_message AS last_error_message,
+                latest_source_runs.stats_json AS last_stats_json,
+                latest_source_runs.warnings_json AS last_warnings_json,
+                latest_success_runs.last_success_at
+            FROM sources
+            LEFT JOIN latest_source_runs
+              ON latest_source_runs.source_key = sources.source_key
+             AND latest_source_runs.row_number = 1
+            LEFT JOIN latest_success_runs
+              ON latest_success_runs.source_key = sources.source_key
+            ORDER BY sources.source_type, sources.source_key
+            """
+        ).fetchall()
+
+    def serialize_source_health(self, row: sqlite3.Row) -> Dict[str, Any]:
+        return {
+            "source_key": row["source_key"],
+            "source_type": row["source_type"],
+            "location": row["location"],
+            "last_synced_at": row["last_synced_at"],
+            "last_run_status": row["last_run_status"] or "never_run",
+            "last_run_started_at": row["last_run_started_at"],
+            "last_run_finished_at": row["last_run_finished_at"],
+            "last_success_at": row["last_success_at"],
+            "last_error_message": row["last_error_message"],
+            "last_stats": self._decode_raw_metadata(row["last_stats_json"]),
+            "last_warnings": self._decode_string_list(row["last_warnings_json"]),
         }
 
     def get_entity_content(self, entity_type: str, entity_key: str) -> Optional[sqlite3.Row]:
@@ -2024,6 +2114,17 @@ class Database:
         if isinstance(value, dict):
             return value
         return {}
+
+    def _decode_string_list(self, payload_json: Optional[str]) -> List[str]:
+        if not payload_json:
+            return []
+        try:
+            value = json.loads(payload_json)
+        except json.JSONDecodeError:
+            return []
+        if not isinstance(value, list):
+            return []
+        return [str(entry) for entry in value if str(entry).strip()]
 
     def _extract_domain(self, url: Optional[str]) -> Optional[str]:
         if not url:

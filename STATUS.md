@@ -111,6 +111,21 @@ This file is a short handoff note for resuming work in a new thread or window.
 - README documents the canonical metadata contract:
   [`README.md`](/Users/taoxuan/Desktop/cloud-brain/README.md)
 
+### 8. Source health view now exists
+
+- sync runs now expose duration and warnings fields
+- CLI now has:
+  `python3 -m personal_brain source-health`
+- API now has:
+  `GET /source-health`
+- source health currently shows:
+  - source key and source type
+  - last sync time
+  - latest run status
+  - latest success time
+  - latest error if any
+  - latest per-source counts
+
 ## Current Behavior
 
 ### Cloud capture

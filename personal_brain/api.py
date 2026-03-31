@@ -472,6 +472,12 @@ def build_handler(
                     self._write_json(200, {"sync_runs": runs, "count": len(runs)})
                     return
 
+                if parsed.path == "/source-health":
+                    rows = database.list_source_health()
+                    sources = [database.serialize_source_health(row) for row in rows]
+                    self._write_json(200, {"sources": sources, "count": len(sources)})
+                    return
+
                 if parsed.path == "/timeline":
                     limit = _int_arg(query, "limit", 20)
                     offset = _int_arg(query, "offset", 0, minimum=0)

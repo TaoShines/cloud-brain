@@ -76,6 +76,19 @@ This file is a short handoff for continuing work in a new window.
 - README now documents this contract:
   [`README.md`](/Users/taoxuan/Desktop/cloud-brain/README.md)
 
+### 7. Source health view now exists
+
+- sync runs now expose duration and warnings fields
+- CLI command:
+  `python3 -m personal_brain source-health`
+- API endpoint:
+  `GET /source-health`
+- current source health view is based on:
+  - latest source-level sync run
+  - latest successful sync time
+  - latest error message
+  - latest per-source counts
+
 ## Current Verified State
 
 Local verification completed:

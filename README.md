@@ -23,10 +23,11 @@ What changed:
   `schema_migrations`
 - sync execution metadata is now stored in `sync_runs`
 - canonical item metadata is now normalized into one shared shape
+- source health is now readable through CLI and API
 - each full sync records:
   - one root run for the overall sync
   - one child run per source
-  - start time, finish time, status, counts, and error message when present
+  - start time, finish time, duration, status, counts, and error message when present
 
 Why this matters:
 
@@ -38,8 +39,8 @@ Why this matters:
 
 Recommended next infrastructure steps:
 
-- record sync duration and source-level warnings
-- expose a clearer source health view through the API
+- keep exposing source health and sync freshness in stable API shapes
+- add clearer stale-source and partial-failure warnings
 - keep stabilizing canonical item fields before adding higher-level AI layers
 - make the API contract more explicit for future AI clients
 
@@ -167,6 +168,7 @@ View basic stats:
 python3 -m personal_brain stats
 python3 -m personal_brain migrations
 python3 -m personal_brain sync-runs --limit 10
+python3 -m personal_brain source-health
 ```
 
 Start the local read-only API:
@@ -441,6 +443,13 @@ For bookmarks, metadata is intentionally lightweight. The system stores bookmark
 metadata as evidence of interest and attention over time, not as a copy of the
 full web page.
 
+The current metadata contract is intentionally split into:
+
+- shared lifecycle metadata such as `status`, `deleted_at`, and `domain`
+- source-specific details nested under `source_details`
+
+This keeps the canonical item shape more predictable for future AI readers.
+
 ### `records`
 
 A compatibility projection that keeps the current cross-source timeline and show
@@ -468,6 +477,7 @@ Current endpoints:
 - `GET /stats`
 - `GET /migrations`
 - `GET /sync-runs`
+- `GET /source-health`
 - `GET /timeline`
 - `GET /items`
 - `GET /items/{item_id}`
@@ -510,6 +520,7 @@ curl "http://127.0.0.1:8765/search?q=AI&item_type=bookmark&status=active&limit=1
 curl "http://127.0.0.1:8765/items/capture:your-item-id/related?limit=10"
 curl "http://127.0.0.1:8765/migrations"
 curl "http://127.0.0.1:8765/sync-runs?limit=10"
+curl "http://127.0.0.1:8765/source-health"
 ```
 
 Current relationship types:
@@ -737,8 +748,8 @@ after it finishes. Running them in parallel can show stale counts during a sync.
 
 The recommended next step is still infrastructure-focused:
 
-1. add sync duration and warning fields to `sync_runs`
-2. expose a source health view through the API
+1. keep the new source health and sync metadata views stable
+2. add clearer warning signals when a source is stale or partially failing
 3. keep the canonical item contract stable before adding smarter AI layers
 
 This is a better next move than topic modeling because the project goal right
