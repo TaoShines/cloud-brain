@@ -4,5 +4,7 @@
   "chrome_bookmarks_path": "/Users/taoxuan/Library/Application Support/Google/Chrome/Default/Bookmarks",
   "capture_token": "replace-with-a-long-random-secret",
   "cloud_capture_project_path": "/Users/taoxuan/Desktop/cloud-brain/cloudflare-capture",
-  "cloud_capture_database_name": "cloud-brain-capture"
+  "cloud_capture_database_name": "cloud-brain-capture",
+  "cloud_capture_auto_sync_enabled": true,
+  "cloud_capture_auto_sync_interval_seconds": 86400
 }

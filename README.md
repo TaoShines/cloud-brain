@@ -89,6 +89,12 @@ Sync configured sources:
 python3 -m personal_brain sync
 ```
 
+Sync only cloud capture into local SQLite:
+
+```bash
+python3 -m personal_brain sync-cloud-capture
+```
+
 View basic stats:
 
 ```bash
@@ -154,13 +160,18 @@ Current behavior:
 - sync no longer wipes manually created local capture items when blog, Codex,
   or bookmark sources refresh
 - cloud capture is deployed separately in [`cloudflare-capture`](/Users/taoxuan/Desktop/cloud-brain/cloudflare-capture)
-- cloud capture writes into Cloudflare D1 first, then can be synced into local SQLite
+- cloud capture writes into Cloudflare D1 first, then syncs into local SQLite
+  through `python3 -m personal_brain sync-cloud-capture`
+- when the local API server runs, it now performs cloud-capture sync once at
+  startup and then again on a timer
+- the included launchd job now runs cloud-capture sync at login and then once
+  per day at 02:00
 
 Important current limitation:
 
-- cloud capture is not written directly into local SQLite at submission time
-- it enters local SQLite when you run local sync
-- the next improvement should be automatic or scheduled cloud-capture sync
+- cloud capture is still not written directly into local SQLite at submission
+  time
+- it becomes automatic through background sync rather than write-through
 
 ## Local Checks
 
@@ -220,8 +231,17 @@ npx wrangler d1 execute cloud-brain-capture --remote --command "SELECT COUNT(*) 
 To pull cloud captures back into local SQLite:
 
 ```bash
-python3 -m personal_brain sync
+python3 -m personal_brain sync-cloud-capture
 python3 -m personal_brain search "公网上" --kind capture --show-full
+```
+
+To install the included launchd job for automatic local replica sync:
+
+```bash
+mkdir -p ~/Library/LaunchAgents
+cp /Users/taoxuan/Desktop/cloud-brain/launchd/com.taoxuan.cloud-brain-sync.plist ~/Library/LaunchAgents/
+launchctl unload ~/Library/LaunchAgents/com.taoxuan.cloud-brain-sync.plist 2>/dev/null || true
+launchctl load ~/Library/LaunchAgents/com.taoxuan.cloud-brain-sync.plist
 ```
 
 ## Configuration
@@ -236,6 +256,12 @@ By default:
 
 - the SQLite database lives inside this repo at `data/personal_brain.db`
 - blog, Codex, and Chrome bookmark source paths can be supplied in `config.local.json`
+- cloud-capture background sync is enabled by default every 300 seconds when
+- cloud-capture background sync is enabled by default every 86400 seconds
+  when `python3 -m personal_brain serve` is running
+- you can override that behavior with
+  `cloud_capture_auto_sync_enabled` and
+  `cloud_capture_auto_sync_interval_seconds`
 - detailed message content is still read from the `rollout_path` recorded in Codex thread history
 
 This makes the repo portable while keeping your private filesystem paths out of the shared project config.

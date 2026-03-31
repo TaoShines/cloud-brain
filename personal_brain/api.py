@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+import threading
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, Optional
 from urllib.parse import parse_qs, unquote, urlparse
 
+from .config import AppConfig
 from .database import Database
+from .sync import sync_cloud_capture_to_local
 
 CAPTURE_WEB_MANIFEST = {
     "name": "Cloud Brain Capture",
@@ -358,12 +362,19 @@ CAPTURE_ICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 2
 
 
 def run_api_server(
-    db_path,
+    config: AppConfig,
     host: str = "127.0.0.1",
     port: int = 8765,
-    capture_token: Optional[str] = None,
 ) -> None:
-    handler_class = build_handler(db_path, capture_token=capture_token)
+    auto_sync = None
+    if config.cloud_capture_project_path and config.cloud_capture_auto_sync_enabled:
+        auto_sync = CloudCaptureAutoSync(config)
+        auto_sync.start()
+    handler_class = build_handler(
+        config.database_path,
+        capture_token=config.capture_token,
+        auto_sync=auto_sync,
+    )
     server = ThreadingHTTPServer((host, port), handler_class)
     print(f"Serving Cloud Brain API at http://{host}:{port}")
     try:
@@ -371,10 +382,16 @@ def run_api_server(
     except KeyboardInterrupt:
         print("\nStopping Cloud Brain API server")
     finally:
+        if auto_sync:
+            auto_sync.stop()
         server.server_close()
 
 
-def build_handler(db_path, capture_token: Optional[str] = None):
+def build_handler(
+    db_path,
+    capture_token: Optional[str] = None,
+    auto_sync: Optional["CloudCaptureAutoSync"] = None,
+):
     class CloudBrainHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
             parsed = urlparse(self.path)
@@ -407,6 +424,7 @@ def build_handler(db_path, capture_token: Optional[str] = None):
                     {
                         "status": "ok",
                         "database_path": str(db_path),
+                        "cloud_capture_sync": auto_sync.snapshot() if auto_sync else None,
                     },
                 )
                 return
@@ -640,6 +658,62 @@ def build_handler(db_path, capture_token: Optional[str] = None):
     return CloudBrainHandler
 
 
+class CloudCaptureAutoSync:
+    def __init__(self, config: AppConfig) -> None:
+        self.config = config
+        self.interval_seconds = config.cloud_capture_auto_sync_interval_seconds
+        self._stop_event = threading.Event()
+        self._lock = threading.Lock()
+        self._thread: Optional[threading.Thread] = None
+        self._status: Dict[str, Any] = {
+            "enabled": True,
+            "interval_seconds": self.interval_seconds,
+            "last_attempt_at": None,
+            "last_success_at": None,
+            "last_error": None,
+        }
+
+    def start(self) -> None:
+        self.sync_once()
+        self._thread = threading.Thread(
+            target=self._run_loop,
+            name="cloud-capture-auto-sync",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        if self._thread:
+            self._thread.join(timeout=2)
+
+    def sync_once(self) -> None:
+        with self._lock:
+            attempted_at = _utc_now_isoformat()
+            self._status["last_attempt_at"] = attempted_at
+            try:
+                summary = sync_cloud_capture_to_local(self.config)
+            except Exception as exc:
+                self._status["last_error"] = str(exc)
+                print(f"[cloud-capture-auto-sync] Sync failed at {attempted_at}: {exc}")
+                return
+            self._status["last_success_at"] = attempted_at
+            self._status["last_error"] = None
+            self._status["last_item_count"] = summary.item_count
+            print(
+                "[cloud-capture-auto-sync] "
+                f"Sync completed at {attempted_at} with {summary.item_count} items"
+            )
+
+    def snapshot(self) -> Dict[str, Any]:
+        with self._lock:
+            return dict(self._status)
+
+    def _run_loop(self) -> None:
+        while not self._stop_event.wait(self.interval_seconds):
+            self.sync_once()
+
+
 def _first_arg(query: Dict[str, list[str]], key: str) -> Optional[str]:
     values = query.get(key)
     if not values:
@@ -695,3 +769,7 @@ def _bearer_token(value: Optional[str]) -> Optional[str]:
         token = text[len(prefix) :].strip()
         return token or None
     return None
+
+
+def _utc_now_isoformat() -> str:
+    return datetime.now(timezone.utc).isoformat()

@@ -15,6 +15,10 @@ This file is a short handoff note for resuming work in a new thread or window.
 - a public Cloudflare Workers capture service has been scaffolded and deployed
 - Cloudflare D1 database for cloud capture has been created and initialized
 - cloud capture now syncs into local SQLite through `python3 -m personal_brain sync`
+- cloud capture now also syncs automatically on local API startup and on a
+  background interval
+- a dedicated `python3 -m personal_brain sync-cloud-capture` command and
+  launchd sync script now exist for operational automation
 
 ## Important files
 
@@ -37,11 +41,13 @@ This file is a short handoff note for resuming work in a new thread or window.
 - capture writes go into Cloudflare D1
 - local brain data still lives in `data/personal_brain.db`
 - local SQLite can ingest cloud capture when `python3 -m personal_brain sync` runs
-- cloud capture is not merged into local SQLite immediately at write time
+- local API startup now triggers cloud-capture sync and keeps polling for new
+  cloud capture rows
+- cloud capture is still not merged into local SQLite immediately at write time
+- default automatic cadence is now daily rather than near-real-time
 
 ## What is not done yet
 
-- no automatic background sync from Cloudflare D1 back into local SQLite yet
 - no unified query surface that combines local SQLite and cloud D1 capture in
   one read call yet
 - no long-term cloud main database yet; current cloud storage is still a
@@ -49,11 +55,12 @@ This file is a short handoff note for resuming work in a new thread or window.
 
 ## Best next step
 
-Automate the Cloudflare capture sync path into local SQLite.
+Finish operationalizing the automatic Cloudflare capture sync path into local
+SQLite.
 
 Recommended shape:
 
-1. trigger cloud-capture sync on a schedule or at startup
+1. make sure the launchd job is loaded on the Mac
 2. preserve stable ids so repeated syncs do not duplicate rows
 3. keep source metadata like `device`, `input_type`, and `source_label`
 4. optionally add local display conversion from UTC to Berlin time
@@ -87,6 +94,7 @@ Check local capture items:
 python3 -m personal_brain search "关键词" --kind capture --show-full
 python3 -m personal_brain timeline --limit 10 --type capture
 python3 -m personal_brain sync
+python3 -m personal_brain sync-cloud-capture
 ```
 
 Check cloud capture rows:

@@ -7,15 +7,17 @@
 
     <key>ProgramArguments</key>
     <array>
-      <string>/bin/zsh</string>
-      <string>/Users/taoxuan/Desktop/cloud-brain/scripts/daily_sync.sh</string>
+      <string>/Users/taoxuan/miniconda3/bin/python3</string>
+      <string>-m</string>
+      <string>personal_brain</string>
+      <string>sync-cloud-capture</string>
     </array>
 
     <key>WorkingDirectory</key>
     <string>/Users/taoxuan/Desktop/cloud-brain</string>
 
     <key>RunAtLoad</key>
-    <false/>
+    <true/>
 
     <key>StartCalendarInterval</key>
     <dict>

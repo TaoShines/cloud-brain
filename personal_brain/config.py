@@ -16,6 +16,8 @@ class AppConfig:
     capture_token: Optional[str]
     cloud_capture_project_path: Optional[Path]
     cloud_capture_database_name: Optional[str]
+    cloud_capture_auto_sync_enabled: bool = True
+    cloud_capture_auto_sync_interval_seconds: int = 86400
     include_assistant_commentary: bool = True
     include_assistant_final_answers: bool = True
 
@@ -36,6 +38,12 @@ def load_config(config_path: Path) -> AppConfig:
         cloud_capture_project_path=_resolve_cloud_capture_project_path(payload, config_dir),
         cloud_capture_database_name=_optional_string(payload.get("cloud_capture_database_name"))
         or "cloud-brain-capture",
+        cloud_capture_auto_sync_enabled=_optional_bool(
+            payload.get("cloud_capture_auto_sync_enabled"), True
+        ),
+        cloud_capture_auto_sync_interval_seconds=_optional_int(
+            payload.get("cloud_capture_auto_sync_interval_seconds"), 86400, minimum=60
+        ),
         include_assistant_commentary=payload.get("include_assistant_commentary", True),
         include_assistant_final_answers=payload.get(
             "include_assistant_final_answers", True
@@ -72,6 +80,29 @@ def _optional_string(value: object) -> Optional[str]:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _optional_bool(value: object, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def _optional_int(value: object, default: int, minimum: int = 0) -> int:
+    if value is None:
+        return default
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, parsed)
 
 
 def _resolve_cloud_capture_project_path(

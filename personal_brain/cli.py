@@ -8,7 +8,7 @@ from typing import Optional
 from .api import run_api_server
 from .config import load_config
 from .database import Database
-from .importers import load_importer_payloads
+from .sync import sync_cloud_capture_to_local, sync_configured_sources
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -22,6 +22,10 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("init", help="Initialize the SQLite database")
     subparsers.add_parser("sync", help="Import all configured data sources")
+    subparsers.add_parser(
+        "sync-cloud-capture",
+        help="Import Cloudflare capture rows into the local SQLite database",
+    )
     subparsers.add_parser("stats", help="Show record counts")
     serve_parser = subparsers.add_parser(
         "serve", help="Start the local HTTP API"
@@ -103,61 +107,31 @@ def main() -> int:
         database.init()
 
         if args.command == "sync":
-            payloads = load_importer_payloads(config)
-            if not payloads:
-                print(
-                    "No data sources configured. Set at least one source path in "
-                    "config.local.json or your chosen config file."
-                )
+            try:
+                summary = sync_configured_sources(config)
+            except ValueError as exc:
+                print(str(exc))
                 return 1
-
-            all_memory_items = []
-            canonical_source_keys = []
-            document_count = 0
-            conversation_count = 0
-            message_count = 0
-            bookmark_count = 0
-
-            for payload in payloads:
-                all_memory_items.extend(payload.memory_items)
-                canonical_source_keys.append(payload.source_key)
-                if payload.documents:
-                    document_count += database.replace_documents(
-                        source_key=payload.source_key,
-                        location=payload.location,
-                        documents=payload.documents,
-                        tags_by_source_id=payload.tags_by_source_id,
-                    )
-                if payload.conversations or payload.messages:
-                    inserted_conversations, inserted_messages = database.replace_conversations(
-                        source_key=payload.source_key,
-                        location=payload.location,
-                        conversations=payload.conversations,
-                        messages=payload.messages,
-                    )
-                    conversation_count += inserted_conversations
-                    message_count += inserted_messages
-                if payload.bookmarks:
-                    bookmark_count += database.sync_bookmarks(
-                        source_key=payload.source_key,
-                        location=payload.location,
-                        bookmarks=payload.bookmarks,
-                    )
-                    all_memory_items.extend(
-                        database.export_bookmark_memory_items(payload.source_key)
-                    )
-
-            record_count = database.replace_memory_items(
-                all_memory_items,
-                source_keys=canonical_source_keys,
-            )
             print(
                 "Synced "
-                f"{document_count} documents, "
-                f"{conversation_count} conversations, "
-                f"{message_count} messages, "
-                f"{bookmark_count} bookmarks, "
-                f"{record_count} unified records"
+                f"{summary.document_count} documents, "
+                f"{summary.conversation_count} conversations, "
+                f"{summary.message_count} messages, "
+                f"{summary.bookmark_count} bookmarks, "
+                f"{summary.record_count} unified records"
+            )
+            return 0
+
+        if args.command == "sync-cloud-capture":
+            try:
+                summary = sync_cloud_capture_to_local(config)
+            except ValueError as exc:
+                print(str(exc))
+                return 1
+            print(
+                "Synced "
+                f"{summary.item_count} cloud capture items, "
+                f"{summary.record_count} unified records"
             )
             return 0
 
@@ -177,10 +151,9 @@ def main() -> int:
         if args.command == "serve":
             database.close()
             run_api_server(
-                config.database_path,
+                config,
                 host=args.host,
                 port=args.port,
-                capture_token=config.capture_token,
             )
             return 0
 
