@@ -2,105 +2,205 @@
 
 This file is a short handoff note for resuming work in a new thread or window.
 
-## What is done
+## What Was Done Today
 
-- local SQLite brain is working
-- blog, Codex, and Chrome bookmarks import are working
-- canonical `items` and compatibility `records` are working
-- local read API is working
-- local write API for `capture` is working
-- local mobile capture page at `/capture` is working
-- CLI now supports `capture` in search and timeline filters
-- local sync no longer deletes manually created local capture items
-- a public Cloudflare Workers capture service has been scaffolded and deployed
-- Cloudflare D1 database for cloud capture has been created and initialized
-- cloud capture now syncs into local SQLite through `python3 -m personal_brain sync`
-- cloud capture now also syncs automatically on local API startup and on a
-  background interval
-- a dedicated `python3 -m personal_brain sync-cloud-capture` command and
-  launchd sync script now exist for operational automation
+### 1. Cloud capture auto-sync was finished
 
-## Important files
+- added a dedicated cloud-only sync command:
+  `python3 -m personal_brain sync-cloud-capture`
+- factored sync logic into:
+  [`personal_brain/sync.py`](/Users/taoxuan/Desktop/cloud-brain/personal_brain/sync.py)
+- local API startup now triggers cloud-capture sync automatically
+- `/health` now reports cloud auto-sync status
+- installed a macOS `launchd` job on this machine for daily cloud-capture sync
+- current installed LaunchAgent:
+  [`/Users/taoxuan/Library/LaunchAgents/com.taoxuan.cloud-brain-sync.plist`](/Users/taoxuan/Library/LaunchAgents/com.taoxuan.cloud-brain-sync.plist)
+- repo copy of the LaunchAgent:
+  [`launchd/com.taoxuan.cloud-brain-sync.plist`](/Users/taoxuan/Desktop/cloud-brain/launchd/com.taoxuan.cloud-brain-sync.plist)
 
-- local API and local capture page:
-  [`personal_brain/api.py`](/Users/taoxuan/Desktop/cloud-brain/personal_brain/api.py)
-- local database and capture item creation:
+### 2. Gemini import support was added
+
+- added a new importer for Gemini exports:
+  [`personal_brain/importers/gemini.py`](/Users/taoxuan/Desktop/cloud-brain/personal_brain/importers/gemini.py)
+- added `gemini_export_path` config support in:
+  [`personal_brain/config.py`](/Users/taoxuan/Desktop/cloud-brain/personal_brain/config.py)
+- wired Gemini into the importer registry:
+  [`personal_brain/importers/__init__.py`](/Users/taoxuan/Desktop/cloud-brain/personal_brain/importers/__init__.py)
+- `timeline --source gemini` now works
+- current behavior:
+  Gemini Google Takeout activity HTML is parsed into canonical session-style
+  `conversation` items
+- real Gemini data has now been imported from:
+  `/Users/taoxuan/Desktop/cloud-brain/data/gemini_exports/Gemini Apps/我的活动记录.html`
+- current local database result:
+  614 Gemini session items
+- important transition rule:
+  while Gemini import format is still being refined, `gemini_exports` is
+  hard-replaced during sync so the database does not keep duplicate old Gemini
+  import formats
+
+### 3. Deletion safety for the personal database was improved
+
+- confirmed bookmarks already behaved as historical records:
+  removed bookmarks become `status=deleted` with `deleted_at`
+- fixed the main `items` sync path so missing source items are no longer
+  physically deleted during normal sync
+- missing items are now marked as:
+  - `metadata.status = "deleted"`
+  - `metadata.deleted_at = ...`
+- `items` and `records` are now upserted instead of delete-and-rebuild for
+  source-scoped sync
+- main implementation is in:
   [`personal_brain/database.py`](/Users/taoxuan/Desktop/cloud-brain/personal_brain/database.py)
-- CLI capture filters:
-  [`personal_brain/cli.py`](/Users/taoxuan/Desktop/cloud-brain/personal_brain/cli.py)
-- Cloudflare deployment:
-  [`cloudflare-capture/src/index.js`](/Users/taoxuan/Desktop/cloud-brain/cloudflare-capture/src/index.js)
-- Cloudflare D1 schema:
-  [`cloudflare-capture/schema.sql`](/Users/taoxuan/Desktop/cloud-brain/cloudflare-capture/schema.sql)
-- Cloudflare config:
-  [`cloudflare-capture/wrangler.toml`](/Users/taoxuan/Desktop/cloud-brain/cloudflare-capture/wrangler.toml)
 
-## Current deployed cloud shape
+### 4. Blog template posts were removed from the database
 
-- public capture page is deployed on Cloudflare Workers
-- capture writes go into Cloudflare D1
-- local brain data still lives in `data/personal_brain.db`
-- local SQLite can ingest cloud capture when `python3 -m personal_brain sync` runs
-- local API startup now triggers cloud-capture sync and keeps polling for new
-  cloud capture rows
-- cloud capture is still not merged into local SQLite immediately at write time
-- default automatic cadence is now daily rather than near-real-time
+- discovered that the blog importer was pulling AstroPaper template documents
+- added exclusion rules for template posts and example docs
+- current default exclusions are configured through:
+  `blog_exclude_globs`
+- implementation is in:
+  [`personal_brain/importers/blog.py`](/Users/taoxuan/Desktop/cloud-brain/personal_brain/importers/blog.py)
+- config support is in:
+  [`personal_brain/config.py`](/Users/taoxuan/Desktop/cloud-brain/personal_brain/config.py)
+- example config was updated in:
+  [`config.local.example.json`](/Users/taoxuan/Desktop/cloud-brain/config.local.example.json)
+- confirmed blog import is now down to 7 real documents
+- kept `my-first-post.md` because the user explicitly confirmed it is their own post
 
-## What is not done yet
+### 5. README was updated
 
-- no unified query surface that combines local SQLite and cloud D1 capture in
-  one read call yet
-- no long-term cloud main database yet; current cloud storage is still a
-  bridge architecture centered on D1 for capture only
+- added Gemini import instructions
+- refreshed outdated sync notes
+- current README:
+  [`README.md`](/Users/taoxuan/Desktop/cloud-brain/README.md)
 
-## Best next step
+## Current Behavior
 
-Finish operationalizing the automatic Cloudflare capture sync path into local
-SQLite.
+### Cloud capture
 
-Recommended shape:
+- phone/public capture goes into Cloudflare D1
+- local SQLite syncs cloud capture back through:
+  `python3 -m personal_brain sync-cloud-capture`
+- local API auto-syncs cloud capture on startup and then on a daily interval
+- `launchd` also runs the cloud-capture sync daily at 02:00
 
-1. make sure the launchd job is loaded on the Mac
-2. preserve stable ids so repeated syncs do not duplicate rows
-3. keep source metadata like `device`, `input_type`, and `source_label`
-4. optionally add local display conversion from UTC to Berlin time
-5. let existing local search, timeline, and show commands keep seeing cloud captures
+### Blog / Codex / cloud capture items
+
+- these sources now preserve historical items in the local memory database
+- if a source item disappears later, the local memory item is kept and marked
+  `deleted` instead of being physically removed
+
+### Gemini
+
+- Gemini is currently a special case during importer iteration
+- the database keeps one canonical Gemini import format at a time
+- old Gemini import shapes are not preserved side-by-side
+- this avoids duplicate Gemini records while the importer is still evolving
+
+### Bookmarks
+
+- bookmarks already preserve interest history
+- removed bookmarks remain in the database with `status=deleted` and `deleted_at`
+
+## Important Files
+
+- sync core:
+  [`personal_brain/sync.py`](/Users/taoxuan/Desktop/cloud-brain/personal_brain/sync.py)
+- local API:
+  [`personal_brain/api.py`](/Users/taoxuan/Desktop/cloud-brain/personal_brain/api.py)
+- database behavior:
+  [`personal_brain/database.py`](/Users/taoxuan/Desktop/cloud-brain/personal_brain/database.py)
+- importer registry:
+  [`personal_brain/importers/__init__.py`](/Users/taoxuan/Desktop/cloud-brain/personal_brain/importers/__init__.py)
+- blog importer:
+  [`personal_brain/importers/blog.py`](/Users/taoxuan/Desktop/cloud-brain/personal_brain/importers/blog.py)
+- Gemini importer:
+  [`personal_brain/importers/gemini.py`](/Users/taoxuan/Desktop/cloud-brain/personal_brain/importers/gemini.py)
+- config:
+  [`personal_brain/config.py`](/Users/taoxuan/Desktop/cloud-brain/personal_brain/config.py)
+- example local config:
+  [`config.local.example.json`](/Users/taoxuan/Desktop/cloud-brain/config.local.example.json)
+
+## Git Status
+
+These changes were already committed and pushed to GitHub on branch:
+
+- `codex-cloud-capture-auto-sync`
+
+Recent commits:
+
+- `53bd38e` Preserve deleted items and filter template blog posts
+- `2c0054d` Add Gemini import support and refresh README
+- `2fcefa2` Add automatic cloud capture sync
+
+## What Is Not Done Yet
+
+- Gemini importer still does not recover true Gemini-native thread ids from
+  Google activity export
+- Gemini session grouping is heuristic rather than based on an official thread
+  identifier
+- there is still no long-term cloud main database
+- the architecture is still transitional:
+  cloud capture in D1, everything else centered on local SQLite
+
+## Best Next Step
+
+Improve Gemini grouping only if the current session-style import proves too
+rough in real use.
+
+Recommended next action:
+
+1. verify current Gemini import locally
+2. run:
+   `python3 -m personal_brain sync`
+3. inspect with:
+   `python3 -m personal_brain timeline --source gemini --limit 10`
+4. search for a known Gemini topic with:
+   `python3 -m personal_brain search "公式图片" --kind conversation --limit 5`
+5. only if grouping still feels wrong later, refine the Gemini session heuristic
 
 ## Longer-Term Direction
 
-Use the cloud as the main always-on layer.
+The user has now clarified a stronger product goal:
 
-Recommended long-term shape:
+- this should be a true personal database that tends to grow over time
+- deleting source files later should not erase historical meaning from the database
+- eventually the main database should move to the cloud rather than stay local-only
 
-- `capture` becomes cloud-first
-- blog, Codex history, and bookmarks remain source-first
-- all four sources eventually sync into one cloud canonical database
-- local SQLite becomes replica/backup rather than the only main database
+Detailed architecture context still lives in:
 
-Detailed rationale and source-by-source design live in
-[`CLOUD_ARCHITECTURE.md`](/Users/taoxuan/Desktop/cloud-brain/CLOUD_ARCHITECTURE.md).
+- [`ARCHITECTURE.md`](/Users/taoxuan/Desktop/cloud-brain/ARCHITECTURE.md)
+- [`CLOUD_ARCHITECTURE.md`](/Users/taoxuan/Desktop/cloud-brain/CLOUD_ARCHITECTURE.md)
 
 ## Recommended Next Prompt
 
 In the next window, start with:
 
-`Read STATUS.md, CLOUD_ARCHITECTURE.md, and ARCHITECTURE.md, then continue making cloud capture sync automatic.`
+`Read STATUS.md, CLOUD_ARCHITECTURE.md, and ARCHITECTURE.md, then continue from the current handoff. First check whether the Google Gemini export has arrived, then wire real Gemini export files into the database.`
 
-## Useful local commands
+## Useful Local Commands
 
-Check local capture items:
+Check cloud capture:
 
 ```bash
-python3 -m personal_brain search "关键词" --kind capture --show-full
-python3 -m personal_brain timeline --limit 10 --type capture
-python3 -m personal_brain sync
+launchctl list com.taoxuan.cloud-brain-sync
 python3 -m personal_brain sync-cloud-capture
+python3 -m personal_brain timeline --limit 10 --type capture
 ```
 
-Check cloud capture rows:
+Check blog content:
 
 ```bash
-export PATH="/opt/homebrew/opt/node@20/bin:$PATH"
-cd /Users/taoxuan/Desktop/cloud-brain/cloudflare-capture
-npx wrangler d1 execute cloud-brain-capture --remote --command "SELECT item_id, created_at, title FROM captures ORDER BY created_at DESC LIMIT 10"
+python3 -m personal_brain timeline --source blog --limit 20
+python3 -m personal_brain search "Cloud Brain" --kind blog --show-full
+```
+
+Check Gemini imports:
+
+```bash
+python3 -m personal_brain sync
+python3 -m personal_brain timeline --source gemini --limit 10
+python3 -m personal_brain search "公式图片" --kind conversation --limit 5
+sqlite3 data/personal_brain.db "select count(*) from items where source_key='gemini_exports';"
 ```

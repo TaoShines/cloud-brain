@@ -7,6 +7,8 @@ from .database import Database
 from .importers.cloud_capture import import_cloud_capture_source
 from .importers import load_importer_payloads
 
+FULL_REPLACE_MEMORY_SOURCE_KEYS = {"gemini_exports"}
+
 
 @dataclass
 class SyncSummary:
@@ -42,6 +44,13 @@ def sync_configured_sources(config: AppConfig) -> SyncSummary:
         bookmark_count = 0
 
         for payload in payloads:
+            if payload.source_key in FULL_REPLACE_MEMORY_SOURCE_KEYS:
+                database.purge_memory_items_for_source(payload.source_key)
+            database.upsert_source(
+                payload.source_key,
+                payload.source_type,
+                payload.location,
+            )
             all_memory_items.extend(payload.memory_items)
             canonical_source_keys.append(payload.source_key)
             if payload.documents:

@@ -588,6 +588,8 @@ class Database:
               AND search_index.entity_type = 'item'
         """
         parameters: List[object] = [query]
+        if status is None:
+            sql += " AND coalesce(json_extract(items.metadata_json, '$.status'), 'active') != 'deleted'"
         if source_type:
             sql += " AND items.source_type = ?"
             parameters.append(source_type)
@@ -662,6 +664,8 @@ class Database:
             like_pattern,
             like_pattern,
         ]
+        if status is None:
+            fallback_sql += " AND coalesce(json_extract(metadata_json, '$.status'), 'active') != 'deleted'"
         if source_type:
             fallback_sql += " AND source_type = ?"
             fallback_parameters.append(source_type)
@@ -720,6 +724,8 @@ class Database:
                 JOIN item_tags ON item_tags.item_id = items.id
             """
         sql += " WHERE 1 = 1"
+        if status is None:
+            sql += " AND coalesce(json_extract(items.metadata_json, '$.status'), 'active') != 'deleted'"
         if source_type:
             sql += " AND items.source_type = ?"
             parameters.append(source_type)
@@ -1002,6 +1008,49 @@ class Database:
         self.connection.commit()
         return total
 
+    def purge_memory_items_for_source(self, source_key: str) -> None:
+        rows = self.connection.execute(
+            """
+            SELECT id, item_id
+            FROM items
+            WHERE source_key = ?
+            """,
+            (source_key,),
+        ).fetchall()
+        if not rows:
+            return
+
+        item_row_ids = [row["id"] for row in rows]
+        item_ids = [row["item_id"] for row in rows]
+        row_placeholders = ", ".join("?" for _ in item_row_ids)
+        key_placeholders = ", ".join("?" for _ in item_ids)
+
+        self.connection.execute(
+            f"DELETE FROM item_tags WHERE item_id IN ({row_placeholders})",
+            item_row_ids,
+        )
+        self.connection.execute(
+            f"""
+            DELETE FROM search_index
+            WHERE entity_type = 'item'
+              AND entity_key IN ({key_placeholders})
+            """,
+            item_ids,
+        )
+        self.connection.execute(
+            f"DELETE FROM record_tags WHERE record_id IN (SELECT id FROM records WHERE record_key IN ({key_placeholders}))",
+            item_ids,
+        )
+        self.connection.execute(
+            f"DELETE FROM records WHERE record_key IN ({key_placeholders})",
+            item_ids,
+        )
+        self.connection.execute(
+            f"DELETE FROM items WHERE id IN ({row_placeholders})",
+            item_row_ids,
+        )
+        self.connection.commit()
+
     def create_capture_item(
         self,
         body: str,
@@ -1071,22 +1120,22 @@ class Database:
     ) -> List[sqlite3.Row]:
         sql = """
             SELECT
-                record_key,
-                record_type,
+                item_id AS record_key,
+                item_type AS record_type,
                 source_type,
                 title,
                 created_at,
                 location,
                 substr(body, 1, 220) AS preview
-            FROM records
-            WHERE 1 = 1
+            FROM items
+            WHERE coalesce(json_extract(metadata_json, '$.status'), 'active') != 'deleted'
         """
         parameters: List[object] = []
         if source_type:
             sql += " AND source_type = ?"
             parameters.append(source_type)
         if record_type:
-            sql += " AND record_type = ?"
+            sql += " AND item_type = ?"
             parameters.append(record_type)
         sql += """
             ORDER BY

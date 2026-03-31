@@ -272,24 +272,31 @@ This makes the repo portable while keeping your private filesystem paths out of 
 
 Recommended workflow:
 
-1. In Gemini, export an important conversation to Google Docs.
-2. From Google Docs, download that document as `.txt`, `.md`, or `.html`.
-3. Save those exported files into one local folder, for example:
+1. Export your Gemini data with Google Takeout or place exported Gemini HTML
+   files into one local folder, for example:
    `/Users/taoxuan/Desktop/cloud-brain/data/gemini_exports`
-4. Set `gemini_export_path` in `config.local.json`.
-5. Run:
+2. Set `gemini_export_path` in `config.local.json`.
+3. Run:
 
 ```bash
 python3 -m personal_brain sync
 python3 -m personal_brain timeline --source gemini --limit 10
+python3 -m personal_brain search "公式图片" --kind conversation --limit 5
 ```
 
-Current first version behavior:
+Current behavior:
 
-- each exported Gemini file becomes one `conversation` item
-- the full exported content is stored in the item body
-- title comes from the first non-empty line of the export
-- supported file types are `.txt`, `.md`, `.html`, and `.htm`
+- if a Google My Activity export file such as `我的活动记录.html` is present,
+  the importer parses the activity log directly
+- nearby Gemini activities are grouped into one canonical `conversation` item
+  using a session-style import
+- generated-image steps and attached files are kept together in the same
+  conversation body and metadata
+- while the Gemini import format is still being refined, sync does a hard
+  replacement for `gemini_exports` so the database keeps one canonical Gemini
+  representation instead of preserving duplicate old import formats
+- fallback support for standalone `.txt`, `.md`, `.html`, and `.htm` exports
+  still remains when no activity-log HTML is present
 
 ## What changed in 2.0
 
