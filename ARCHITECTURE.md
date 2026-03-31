@@ -125,13 +125,14 @@ Current sources:
 
 - blog and diary Markdown
 - Codex thread metadata and message history
+- Chrome bookmarks metadata
 
 Recommended next sources:
 
-- bookmarks and saved links
+- mobile thought capture
+- WeChat history
 - reading notes and highlights
 - project notes
-- manually captured thoughts
 - screenshots or image metadata
 
 ## Access Strategy
@@ -222,6 +223,15 @@ Status:
 - local read-only API now exists for `health`, `stats`, `timeline`, `items`,
   `items/{id}`, and `search`
 - next improvement should focus on richer filters and API stability
+
+### Phase 2.5: Active Input
+
+Goal: let new thoughts enter the system at the moment they happen.
+
+- add a write API for new capture items
+- support a lightweight mobile-first capture client
+- treat capture as a canonical item type, not as an external importer hack
+- keep the first version small and fast rather than feature-heavy
 
 ### Phase 3: Richer Memory Graph
 

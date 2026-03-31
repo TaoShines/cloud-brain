@@ -17,9 +17,15 @@ The working direction is:
 - expose the memory layer through a local API
 - improve retrieval so future AI clients can query memory precisely instead of
   reading everything at once
+- add a low-friction capture path so new thoughts can enter the database at the
+  moment they happen
 
 At this stage, the project is optimized more for "AI can reliably read this
 memory system later" than for "humans browse it manually every day".
+
+The newest product direction is to add an active input path from mobile, so the
+system can capture in-the-moment thoughts instead of only importing material
+after the fact.
 
 It starts with three sources:
 
@@ -354,6 +360,55 @@ This means the core foundation is already in place. The main work ahead is
 continuing to strengthen retrieval, source expansion, and AI calling patterns
 on top of the existing memory backend.
 
+What is still missing is a native capture path for new thoughts. Right now the
+system is very good at importing existing data, but it still needs a fast way
+to accept fresh input from your phone while you are on the move.
+
+## New Input Direction
+
+The latest agreed direction is to add a mobile capture flow for active input.
+
+Target flow:
+
+1. open a simple mobile-friendly app or web page
+2. speak a thought using your existing Typeless AI voice input
+3. submit the transcribed text into the Cloud Brain database
+
+Important product decision:
+
+- the first version does not need to be a custom keyboard or input method
+- the first version should focus on a data capture endpoint
+- the first version can be a lightweight mobile web app instead of a full
+  native app
+
+Why this matters:
+
+- blog posts, Codex logs, and bookmarks are all after-the-fact records
+- a capture endpoint lets the database receive thoughts at the moment they are
+  produced
+- this turns the project from a passive archive into an active external memory
+  system
+
+## Planned Capture Architecture
+
+The current planned implementation order is:
+
+1. add a write API for new memory capture
+2. define a new canonical item type such as `capture` or `voice_note`
+3. build a very small mobile-first input surface
+4. send captured text into the same SQLite-backed memory system
+
+The first version should stay intentionally small:
+
+- one input field
+- one submit action
+- optional title later if needed
+- automatic timestamp
+- minimal metadata such as device or source type
+
+The goal is not to build a complex note-taking app first. The goal is to make
+"I had a thought on the road and saved it in seconds" actually work.
+
 ## Local Daily Sync
 
 The project now includes a local macOS scheduled sync setup.
@@ -387,11 +442,13 @@ after it finishes. Running them in parallel can show stale counts during a sync.
 - keep README and architecture docs current so new threads can resume quickly
 - continue improving AI-oriented retrieval filters and response stability
 - preserve importer standardization so new sources do not create ad hoc logic
+- add the first write path for mobile capture input
 - defer heavy UI work until the memory backend is more mature
 
 ## Next Expansions
 
 - add future sources such as WeChat history, screenshots, and reading notes
+- add mobile capture input for fresh thoughts
 - attach embeddings for semantic retrieval when exact filters are no longer enough
 - define a more explicit AI query protocol on top of the current API
 - generate periodic summaries from your own archive
