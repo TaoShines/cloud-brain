@@ -30,6 +30,7 @@ after the fact.
 It starts with three sources:
 
 - your blog/journal Markdown files
+- your Gemini conversations exported from Google Docs
 - your Codex conversation history
 - your Chrome bookmarks metadata
 
@@ -120,6 +121,7 @@ Show one combined timeline across blog, Codex, and bookmarks:
 ```bash
 python3 -m personal_brain timeline --limit 20
 python3 -m personal_brain timeline --source blog
+python3 -m personal_brain timeline --source gemini
 python3 -m personal_brain timeline --type message
 ```
 
@@ -256,7 +258,7 @@ By default:
 
 - the SQLite database lives inside this repo at `data/personal_brain.db`
 - blog, Codex, and Chrome bookmark source paths can be supplied in `config.local.json`
-- cloud-capture background sync is enabled by default every 300 seconds when
+- Gemini exports from Google Docs can be supplied with `gemini_export_path`
 - cloud-capture background sync is enabled by default every 86400 seconds
   when `python3 -m personal_brain serve` is running
 - you can override that behavior with
@@ -265,6 +267,29 @@ By default:
 - detailed message content is still read from the `rollout_path` recorded in Codex thread history
 
 This makes the repo portable while keeping your private filesystem paths out of the shared project config.
+
+## Gemini Import
+
+Recommended workflow:
+
+1. In Gemini, export an important conversation to Google Docs.
+2. From Google Docs, download that document as `.txt`, `.md`, or `.html`.
+3. Save those exported files into one local folder, for example:
+   `/Users/taoxuan/Desktop/cloud-brain/data/gemini_exports`
+4. Set `gemini_export_path` in `config.local.json`.
+5. Run:
+
+```bash
+python3 -m personal_brain sync
+python3 -m personal_brain timeline --source gemini --limit 10
+```
+
+Current first version behavior:
+
+- each exported Gemini file becomes one `conversation` item
+- the full exported content is stored in the item body
+- title comes from the first non-empty line of the export
+- supported file types are `.txt`, `.md`, `.html`, and `.htm`
 
 ## What changed in 2.0
 

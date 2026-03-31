@@ -11,6 +11,7 @@ class AppConfig:
     database_path: Path
     blog_repo_path: Optional[Path]
     blog_glob: str
+    gemini_export_path: Optional[Path]
     codex_state_db_path: Optional[Path]
     chrome_bookmarks_path: Optional[Path]
     capture_token: Optional[str]
@@ -30,6 +31,7 @@ def load_config(config_path: Path) -> AppConfig:
         or config_dir / "data" / "personal_brain.db",
         blog_repo_path=_resolve_path(payload.get("blog_repo_path"), config_dir),
         blog_glob=payload.get("blog_glob", "src/data/blog/**/*.md"),
+        gemini_export_path=_resolve_path(payload.get("gemini_export_path"), config_dir),
         codex_state_db_path=_resolve_path(payload.get("codex_state_db_path"), config_dir),
         chrome_bookmarks_path=_resolve_path(
             payload.get("chrome_bookmarks_path"), config_dir

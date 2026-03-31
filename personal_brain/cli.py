@@ -53,7 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     timeline_parser.add_argument(
         "--source",
-        choices=["blog", "codex", "bookmark", "capture"],
+        choices=["blog", "gemini", "codex", "bookmark", "capture"],
         help="Optional source filter",
     )
     timeline_parser.add_argument(
