@@ -14,6 +14,8 @@ class AppConfig:
     codex_state_db_path: Optional[Path]
     chrome_bookmarks_path: Optional[Path]
     capture_token: Optional[str]
+    cloud_capture_project_path: Optional[Path]
+    cloud_capture_database_name: Optional[str]
     include_assistant_commentary: bool = True
     include_assistant_final_answers: bool = True
 
@@ -31,6 +33,9 @@ def load_config(config_path: Path) -> AppConfig:
             payload.get("chrome_bookmarks_path"), config_dir
         ),
         capture_token=_optional_string(payload.get("capture_token")),
+        cloud_capture_project_path=_resolve_cloud_capture_project_path(payload, config_dir),
+        cloud_capture_database_name=_optional_string(payload.get("cloud_capture_database_name"))
+        or "cloud-brain-capture",
         include_assistant_commentary=payload.get("include_assistant_commentary", True),
         include_assistant_final_answers=payload.get(
             "include_assistant_final_answers", True
@@ -67,3 +72,15 @@ def _optional_string(value: object) -> Optional[str]:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _resolve_cloud_capture_project_path(
+    payload: Dict[str, Any], config_dir: Path
+) -> Optional[Path]:
+    explicit = _resolve_path(payload.get("cloud_capture_project_path"), config_dir)
+    if explicit:
+        return explicit
+    default_path = (config_dir / "cloudflare-capture").resolve()
+    if default_path.exists():
+        return default_path
+    return None

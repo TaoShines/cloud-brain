@@ -167,6 +167,20 @@ clients access your memory system as a tool rather than as pasted context.
 A lightweight browser UI can come later, but it should sit on top of the same
 query layer instead of introducing a second data model.
 
+## Long-Term Cloud Direction
+
+For the detailed cloud design, see
+[`CLOUD_ARCHITECTURE.md`](/Users/taoxuan/Desktop/cloud-brain/CLOUD_ARCHITECTURE.md).
+
+The short version is:
+
+- `capture` should be cloud-first
+- blog, Codex history, and bookmarks should remain source-first
+- all four sources should eventually sync into one cloud canonical brain
+- local SQLite should gradually become a replica and backup layer rather than
+  the only always-on database
+- UTC should remain the storage format, with local-time conversion at display
+
 ## Sync Strategy
 
 Right now sync is replace-all. That is acceptable for an early prototype but
@@ -240,12 +254,16 @@ Current status:
 - local capture items are stored in canonical `items`
 - a separate Cloudflare Workers + D1 capture service now exists for public
   access without keeping the Mac online
+- cloud capture can now be synced back into local SQLite through the existing
+  sync flow
 
 Current gap:
 
-- cloud capture does not yet sync back into the local SQLite brain
-- the next concrete step should be a Cloudflare D1 importer or sync command
-  that maps cloud capture rows back into canonical local `items`
+- cloud capture is not yet merged into local SQLite immediately at write time
+- the next concrete step should be automatic or scheduled sync from Cloudflare
+  D1 into the local SQLite brain
+- the longer-term step after that should be moving from the current bridge
+  architecture toward one cloud main database
 
 ### Phase 3: Richer Memory Graph
 
@@ -285,7 +303,12 @@ Compared with the current state, this architecture improves:
 
 The best next implementation step is:
 
-connect cloud capture back into the local brain with a reliable sync path.
+make cloud capture sync automatic and operationally reliable.
 
-That is now the shortest path from "public mobile input works" to "one unified
-personal memory system".
+That is now the shortest path from "public mobile input works" to "public input
+feels seamless and always lands in the main local brain".
+
+After that, the next major design step should be:
+
+define and build the long-term cloud main database that can absorb capture,
+bookmarks, blog, and Codex history into one canonical cloud brain.

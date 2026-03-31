@@ -154,13 +154,13 @@ Current behavior:
 - sync no longer wipes manually created local capture items when blog, Codex,
   or bookmark sources refresh
 - cloud capture is deployed separately in [`cloudflare-capture`](/Users/taoxuan/Desktop/cloud-brain/cloudflare-capture)
-- cloud capture writes into Cloudflare D1, not yet into local SQLite
+- cloud capture writes into Cloudflare D1 first, then can be synced into local SQLite
 
 Important current limitation:
 
-- cloud capture and local brain are not merged automatically yet
-- the next implementation step should be a sync path from Cloudflare D1 back
-  into local SQLite
+- cloud capture is not written directly into local SQLite at submission time
+- it enters local SQLite when you run local sync
+- the next improvement should be automatic or scheduled cloud-capture sync
 
 ## Local Checks
 
@@ -215,6 +215,13 @@ To count cloud capture rows:
 export PATH="/opt/homebrew/opt/node@20/bin:$PATH"
 cd /Users/taoxuan/Desktop/cloud-brain/cloudflare-capture
 npx wrangler d1 execute cloud-brain-capture --remote --command "SELECT COUNT(*) AS capture_count FROM captures"
+```
+
+To pull cloud captures back into local SQLite:
+
+```bash
+python3 -m personal_brain sync
+python3 -m personal_brain search "公网上" --kind capture --show-full
 ```
 
 ## Configuration

@@ -959,11 +959,15 @@ class Database:
         )
         return self.replace_memory_items(memory_items)
 
-    def replace_memory_items(self, memory_items: Iterable[MemoryItem]) -> int:
+    def replace_memory_items(
+        self,
+        memory_items: Iterable[MemoryItem],
+        source_keys: Optional[Iterable[str]] = None,
+    ) -> int:
         item_rows = list(memory_items)
-        source_keys = sorted({item.source_key for item in item_rows})
-        if source_keys:
-            self._delete_memory_items_for_sources(source_keys)
+        resolved_source_keys = sorted(set(source_keys or {item.source_key for item in item_rows}))
+        if resolved_source_keys:
+            self._delete_memory_items_for_sources(resolved_source_keys)
         else:
             self.connection.execute("DELETE FROM search_index WHERE entity_type = 'item'")
             self.connection.execute("DELETE FROM item_tags")

@@ -112,6 +112,7 @@ def main() -> int:
                 return 1
 
             all_memory_items = []
+            canonical_source_keys = []
             document_count = 0
             conversation_count = 0
             message_count = 0
@@ -119,6 +120,7 @@ def main() -> int:
 
             for payload in payloads:
                 all_memory_items.extend(payload.memory_items)
+                canonical_source_keys.append(payload.source_key)
                 if payload.documents:
                     document_count += database.replace_documents(
                         source_key=payload.source_key,
@@ -145,7 +147,10 @@ def main() -> int:
                         database.export_bookmark_memory_items(payload.source_key)
                     )
 
-            record_count = database.replace_memory_items(all_memory_items)
+            record_count = database.replace_memory_items(
+                all_memory_items,
+                source_keys=canonical_source_keys,
+            )
             print(
                 "Synced "
                 f"{document_count} documents, "
