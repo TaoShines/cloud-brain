@@ -2,18 +2,21 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 from ..models import DocumentRecord, ImporterPayload, MemoryItem
 
 
 def import_blog(
-    blog_repo_path: Path, blog_glob: str
+    blog_repo_path: Path, blog_glob: str, exclude_globs: Optional[Iterable[str]] = None
 ) -> Tuple[List[DocumentRecord], Dict[str, List[str]]]:
     documents: List[DocumentRecord] = []
     tags_by_source_id: Dict[str, List[str]] = {}
+    excluded_files = resolve_excluded_files(blog_repo_path, exclude_globs or [])
 
     for file_path in sorted(blog_repo_path.glob(blog_glob)):
+        if file_path in excluded_files:
+            continue
         text = file_path.read_text(encoding="utf-8")
         frontmatter, content = split_frontmatter(text)
         metadata = parse_frontmatter(frontmatter)
@@ -43,8 +46,12 @@ def import_blog(
     return documents, tags_by_source_id
 
 
-def import_blog_source(blog_repo_path: Path, blog_glob: str) -> ImporterPayload:
-    documents, tags_by_source_id = import_blog(blog_repo_path, blog_glob)
+def import_blog_source(
+    blog_repo_path: Path,
+    blog_glob: str,
+    exclude_globs: Optional[Iterable[str]] = None,
+) -> ImporterPayload:
+    documents, tags_by_source_id = import_blog(blog_repo_path, blog_glob, exclude_globs)
     memory_items = build_blog_memory_items(documents, tags_by_source_id)
     return ImporterPayload(
         source_key="blog_repo",
@@ -57,6 +64,13 @@ def import_blog_source(blog_repo_path: Path, blog_glob: str) -> ImporterPayload:
         bookmarks=[],
         tags_by_source_id=tags_by_source_id,
     )
+
+
+def resolve_excluded_files(blog_repo_path: Path, exclude_globs: Iterable[str]) -> set[Path]:
+    excluded: set[Path] = set()
+    for pattern in exclude_globs:
+        excluded.update(path.resolve() for path in blog_repo_path.glob(pattern))
+    return excluded
 
 
 def build_blog_memory_items(

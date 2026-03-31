@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -11,6 +11,7 @@ class AppConfig:
     database_path: Path
     blog_repo_path: Optional[Path]
     blog_glob: str
+    blog_exclude_globs: List[str]
     gemini_export_path: Optional[Path]
     codex_state_db_path: Optional[Path]
     chrome_bookmarks_path: Optional[Path]
@@ -31,6 +32,10 @@ def load_config(config_path: Path) -> AppConfig:
         or config_dir / "data" / "personal_brain.db",
         blog_repo_path=_resolve_path(payload.get("blog_repo_path"), config_dir),
         blog_glob=payload.get("blog_glob", "src/data/blog/**/*.md"),
+        blog_exclude_globs=_string_list(
+            payload.get("blog_exclude_globs"),
+            default=_default_blog_exclude_globs(),
+        ),
         gemini_export_path=_resolve_path(payload.get("gemini_export_path"), config_dir),
         codex_state_db_path=_resolve_path(payload.get("codex_state_db_path"), config_dir),
         chrome_bookmarks_path=_resolve_path(
@@ -107,6 +112,19 @@ def _optional_int(value: object, default: int, minimum: int = 0) -> int:
     return max(minimum, parsed)
 
 
+def _string_list(value: object, default: Optional[List[str]] = None) -> List[str]:
+    if value is None:
+        return list(default or [])
+    if not isinstance(value, list):
+        return list(default or [])
+    cleaned: List[str] = []
+    for item in value:
+        text = str(item).strip()
+        if text:
+            cleaned.append(text)
+    return cleaned
+
+
 def _resolve_cloud_capture_project_path(
     payload: Dict[str, Any], config_dir: Path
 ) -> Optional[Path]:
@@ -117,3 +135,19 @@ def _resolve_cloud_capture_project_path(
     if default_path.exists():
         return default_path
     return None
+
+
+def _default_blog_exclude_globs() -> List[str]:
+    return [
+        "src/data/blog/_releases/**/*.md",
+        "src/data/blog/examples/**/*.md",
+        "src/data/blog/adding-new-post.md",
+        "src/data/blog/customizing-astropaper-theme-color-schemes.md",
+        "src/data/blog/dynamic-og-images.md",
+        "src/data/blog/how-to-add-latex-equations-in-blog-posts.md",
+        "src/data/blog/how-to-configure-astropaper-theme.md",
+        "src/data/blog/how-to-integrate-giscus-comments.md",
+        "src/data/blog/how-to-update-dependencies.md",
+        "src/data/blog/predefined-color-schemes.md",
+        "src/data/blog/setting-dates-via-git-hooks.md",
+    ]

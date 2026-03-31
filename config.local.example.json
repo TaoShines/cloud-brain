@@ -1,5 +1,18 @@
 {
   "blog_repo_path": "/Users/taoxuan/Desktop/my-clean-blog",
+  "blog_exclude_globs": [
+    "src/data/blog/_releases/**/*.md",
+    "src/data/blog/examples/**/*.md",
+    "src/data/blog/adding-new-post.md",
+    "src/data/blog/customizing-astropaper-theme-color-schemes.md",
+    "src/data/blog/dynamic-og-images.md",
+    "src/data/blog/how-to-add-latex-equations-in-blog-posts.md",
+    "src/data/blog/how-to-configure-astropaper-theme.md",
+    "src/data/blog/how-to-integrate-giscus-comments.md",
+    "src/data/blog/how-to-update-dependencies.md",
+    "src/data/blog/predefined-color-schemes.md",
+    "src/data/blog/setting-dates-via-git-hooks.md"
+  ],
   "gemini_export_path": "/Users/taoxuan/Desktop/cloud-brain/data/gemini_exports",
   "codex_state_db_path": "/Users/taoxuan/.codex/state_5.sqlite",
   "chrome_bookmarks_path": "/Users/taoxuan/Library/Application Support/Google/Chrome/Default/Bookmarks",

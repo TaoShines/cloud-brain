@@ -967,7 +967,13 @@ class Database:
         item_rows = list(memory_items)
         resolved_source_keys = sorted(set(source_keys or {item.source_key for item in item_rows}))
         if resolved_source_keys:
-            self._delete_memory_items_for_sources(resolved_source_keys)
+            active_item_ids_by_source: Dict[str, List[str]] = {}
+            for item in item_rows:
+                active_item_ids_by_source.setdefault(item.source_key, []).append(item.item_id)
+            self._mark_missing_memory_items_deleted(
+                resolved_source_keys,
+                active_item_ids_by_source,
+            )
         else:
             self.connection.execute("DELETE FROM search_index WHERE entity_type = 'item'")
             self.connection.execute("DELETE FROM item_tags")
@@ -1245,12 +1251,21 @@ class Database:
         return items
 
     def _insert_record(self, record: UnifiedRecord) -> int:
-        cursor = self.connection.execute(
+        self.connection.execute(
             """
             INSERT INTO records (
                 record_key, record_type, source_type, title, body, created_at,
                 updated_at, location, parent_key
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(record_key) DO UPDATE SET
+                record_type = excluded.record_type,
+                source_type = excluded.source_type,
+                title = excluded.title,
+                body = excluded.body,
+                created_at = excluded.created_at,
+                updated_at = excluded.updated_at,
+                location = excluded.location,
+                parent_key = excluded.parent_key
             """,
             (
                 record.record_key,
@@ -1264,7 +1279,14 @@ class Database:
                 record.parent_key,
             ),
         )
-        record_id = cursor.lastrowid
+        record_row = self.connection.execute(
+            "SELECT id FROM records WHERE record_key = ?",
+            (record.record_key,),
+        ).fetchone()
+        if not record_row:
+            return 0
+        record_id = record_row["id"]
+        self.connection.execute("DELETE FROM record_tags WHERE record_id = ?", (record_id,))
         for tag in record.tags:
             self.connection.execute(
                 "INSERT OR IGNORE INTO record_tags (record_id, tag) VALUES (?, ?)",
@@ -1273,13 +1295,28 @@ class Database:
         return 1
 
     def _insert_item(self, item: MemoryItem) -> int:
-        cursor = self.connection.execute(
+        normalized_metadata = self._normalize_item_metadata(item.metadata)
+        self.connection.execute(
             """
             INSERT INTO items (
                 item_id, source_key, source_type, external_id, item_type, title, body,
                 created_at, updated_at, imported_at, checksum, location, parent_id,
                 metadata_json
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?)
+            ON CONFLICT(item_id) DO UPDATE SET
+                source_key = excluded.source_key,
+                source_type = excluded.source_type,
+                external_id = excluded.external_id,
+                item_type = excluded.item_type,
+                title = excluded.title,
+                body = excluded.body,
+                created_at = excluded.created_at,
+                updated_at = excluded.updated_at,
+                imported_at = datetime('now'),
+                checksum = excluded.checksum,
+                location = excluded.location,
+                parent_id = excluded.parent_id,
+                metadata_json = excluded.metadata_json
             """,
             (
                 item.item_id,
@@ -1294,15 +1331,29 @@ class Database:
                 item.checksum,
                 item.location,
                 item.parent_id,
-                json.dumps(item.metadata, ensure_ascii=True, sort_keys=True),
+                json.dumps(normalized_metadata, ensure_ascii=True, sort_keys=True),
             ),
         )
-        item_row_id = cursor.lastrowid
+        item_row = self.connection.execute(
+            "SELECT id FROM items WHERE item_id = ?",
+            (item.item_id,),
+        ).fetchone()
+        if not item_row:
+            return 0
+        item_row_id = item_row["id"]
+        self.connection.execute("DELETE FROM item_tags WHERE item_id = ?", (item_row_id,))
         for tag in item.tags:
             self.connection.execute(
                 "INSERT OR IGNORE INTO item_tags (item_id, tag) VALUES (?, ?)",
                 (item_row_id, tag),
             )
+        self.connection.execute(
+            """
+            DELETE FROM search_index
+            WHERE entity_type = 'item' AND entity_key = ?
+            """,
+            (item.item_id,),
+        )
         self.connection.execute(
             """
             INSERT INTO search_index (entity_type, entity_key, title, body)
@@ -1312,32 +1363,58 @@ class Database:
         )
         return 0
 
-    def _delete_memory_items_for_sources(self, source_keys: List[str]) -> None:
-        placeholders = ", ".join("?" for _ in source_keys)
-        item_ids = [
-            row["item_id"]
-            for row in self.connection.execute(
-                f"SELECT item_id FROM items WHERE source_key IN ({placeholders})",
-                source_keys,
-            ).fetchall()
-        ]
-        if item_ids:
-            item_placeholders = ", ".join("?" for _ in item_ids)
-            self.connection.execute(
-                f"""
-                DELETE FROM search_index
-                WHERE entity_type = 'item' AND entity_key IN ({item_placeholders})
-                """,
-                item_ids,
-            )
-            self.connection.execute(
-                f"DELETE FROM records WHERE record_key IN ({item_placeholders})",
-                item_ids,
-            )
-        self.connection.execute(
-            f"DELETE FROM items WHERE source_key IN ({placeholders})",
-            source_keys,
-        )
+    def _mark_missing_memory_items_deleted(
+        self,
+        source_keys: List[str],
+        active_item_ids_by_source: Dict[str, List[str]],
+    ) -> None:
+        for source_key in source_keys:
+            active_item_ids = sorted(set(active_item_ids_by_source.get(source_key, [])))
+            if active_item_ids:
+                placeholders = ", ".join("?" for _ in active_item_ids)
+                rows = self.connection.execute(
+                    f"""
+                    SELECT item_id, metadata_json
+                    FROM items
+                    WHERE source_key = ?
+                      AND item_id NOT IN ({placeholders})
+                    """,
+                    [source_key, *active_item_ids],
+                ).fetchall()
+            else:
+                rows = self.connection.execute(
+                    """
+                    SELECT item_id, metadata_json
+                    FROM items
+                    WHERE source_key = ?
+                    """,
+                    (source_key,),
+                ).fetchall()
+
+            for row in rows:
+                metadata = self._decode_metadata(row["metadata_json"])
+                if metadata.get("status") == "deleted":
+                    continue
+                deleted_at = datetime.now(timezone.utc).isoformat()
+                updated_metadata = {
+                    **metadata,
+                    "status": "deleted",
+                    "deleted_at": deleted_at,
+                }
+                self.connection.execute(
+                    """
+                    UPDATE items
+                    SET updated_at = ?,
+                        imported_at = datetime('now'),
+                        metadata_json = ?
+                    WHERE item_id = ?
+                    """,
+                    (
+                        deleted_at,
+                        json.dumps(updated_metadata, ensure_ascii=True, sort_keys=True),
+                        row["item_id"],
+                    ),
+                )
 
     def _conversation_location(self, thread_id: str) -> Optional[str]:
         row = self.connection.execute(
@@ -1382,6 +1459,12 @@ class Database:
             normalized.insert(0, "capture")
         if "mobile" not in set(normalized):
             normalized.append("mobile")
+        return normalized
+
+    def _normalize_item_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        normalized = dict(metadata)
+        normalized["status"] = "active"
+        normalized["deleted_at"] = None
         return normalized
 
     def _decode_metadata(self, metadata_json: Optional[str]) -> Dict[str, Any]:
