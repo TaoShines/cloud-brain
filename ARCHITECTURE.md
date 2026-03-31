@@ -233,6 +233,20 @@ Goal: let new thoughts enter the system at the moment they happen.
 - treat capture as a canonical item type, not as an external importer hack
 - keep the first version small and fast rather than feature-heavy
 
+Current status:
+
+- local write API now exists for capture items
+- local mobile-first capture page now exists
+- local capture items are stored in canonical `items`
+- a separate Cloudflare Workers + D1 capture service now exists for public
+  access without keeping the Mac online
+
+Current gap:
+
+- cloud capture does not yet sync back into the local SQLite brain
+- the next concrete step should be a Cloudflare D1 importer or sync command
+  that maps cloud capture rows back into canonical local `items`
+
 ### Phase 3: Richer Memory Graph
 
 Goal: move from archive to connected memory.
@@ -271,7 +285,7 @@ Compared with the current state, this architecture improves:
 
 The best next implementation step is:
 
-build a stronger canonical memory schema and prepare it for a read API.
+connect cloud capture back into the local brain with a reliable sync path.
 
-That is the shortest path from "working prototype" to "real cloud brain
-foundation".
+That is now the shortest path from "public mobile input works" to "one unified
+personal memory system".

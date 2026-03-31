@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import urlparse
@@ -960,12 +961,15 @@ class Database:
 
     def replace_memory_items(self, memory_items: Iterable[MemoryItem]) -> int:
         item_rows = list(memory_items)
-
-        self.connection.execute("DELETE FROM search_index WHERE entity_type = 'item'")
-        self.connection.execute("DELETE FROM item_tags")
-        self.connection.execute("DELETE FROM items")
-        self.connection.execute("DELETE FROM record_tags")
-        self.connection.execute("DELETE FROM records")
+        source_keys = sorted({item.source_key for item in item_rows})
+        if source_keys:
+            self._delete_memory_items_for_sources(source_keys)
+        else:
+            self.connection.execute("DELETE FROM search_index WHERE entity_type = 'item'")
+            self.connection.execute("DELETE FROM item_tags")
+            self.connection.execute("DELETE FROM items")
+            self.connection.execute("DELETE FROM record_tags")
+            self.connection.execute("DELETE FROM records")
 
         total = 0
         for item in item_rows:
@@ -987,6 +991,67 @@ class Database:
 
         self.connection.commit()
         return total
+
+    def create_capture_item(
+        self,
+        body: str,
+        title: Optional[str] = None,
+        created_at: Optional[str] = None,
+        device: Optional[str] = None,
+        input_type: Optional[str] = None,
+        source_label: Optional[str] = None,
+        tags: Optional[Iterable[str]] = None,
+    ) -> MemoryItem:
+        normalized_body = body.strip()
+        if not normalized_body:
+            raise ValueError("Capture body must not be empty")
+
+        timestamp = created_at or datetime.now(timezone.utc).isoformat()
+        external_id = self._build_item_id("capture")
+        item_id = f"capture:{external_id}"
+        normalized_tags = self._normalize_tags(tags)
+        resolved_title = self._build_capture_title(title, normalized_body)
+        metadata = {
+            "capture_kind": "mobile",
+            "device": device,
+            "input_type": input_type or "text",
+            "source_label": source_label or "mobile_capture_api",
+        }
+        item = MemoryItem(
+            item_id=item_id,
+            source_key="mobile_capture",
+            source_type="capture",
+            external_id=external_id,
+            item_type="capture",
+            title=resolved_title,
+            body=normalized_body,
+            created_at=timestamp,
+            updated_at=timestamp,
+            imported_at=None,
+            checksum=self._build_checksum(item_id, resolved_title, normalized_body, timestamp),
+            location=f"api:/captures/{external_id}",
+            parent_id=None,
+            metadata={key: value for key, value in metadata.items() if value},
+            tags=normalized_tags,
+        )
+        self.upsert_source("mobile_capture", "capture", "api:/captures")
+        self._insert_item(item)
+        self._insert_record(
+            UnifiedRecord(
+                record_key=item.item_id,
+                record_type=item.item_type,
+                source_type=item.source_type,
+                title=item.title,
+                body=item.body,
+                created_at=item.created_at,
+                updated_at=item.updated_at,
+                location=item.location,
+                parent_key=item.parent_id,
+                tags=item.tags,
+            )
+        )
+        self.connection.commit()
+        return item
 
     def timeline(
         self,
@@ -1243,6 +1308,33 @@ class Database:
         )
         return 0
 
+    def _delete_memory_items_for_sources(self, source_keys: List[str]) -> None:
+        placeholders = ", ".join("?" for _ in source_keys)
+        item_ids = [
+            row["item_id"]
+            for row in self.connection.execute(
+                f"SELECT item_id FROM items WHERE source_key IN ({placeholders})",
+                source_keys,
+            ).fetchall()
+        ]
+        if item_ids:
+            item_placeholders = ", ".join("?" for _ in item_ids)
+            self.connection.execute(
+                f"""
+                DELETE FROM search_index
+                WHERE entity_type = 'item' AND entity_key IN ({item_placeholders})
+                """,
+                item_ids,
+            )
+            self.connection.execute(
+                f"DELETE FROM records WHERE record_key IN ({item_placeholders})",
+                item_ids,
+            )
+        self.connection.execute(
+            f"DELETE FROM items WHERE source_key IN ({placeholders})",
+            source_keys,
+        )
+
     def _conversation_location(self, thread_id: str) -> Optional[str]:
         row = self.connection.execute(
             "SELECT rollout_path FROM conversations WHERE thread_id = ?",
@@ -1257,6 +1349,36 @@ class Database:
 
         normalized = "||".join("" if part is None else str(part) for part in parts)
         return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+    def _build_capture_title(self, title: Optional[str], body: str) -> str:
+        if title and title.strip():
+            return title.strip()[:120]
+        first_line = next((line.strip() for line in body.splitlines() if line.strip()), body)
+        if len(first_line) <= 80:
+            return first_line
+        return f"{first_line[:77].rstrip()}..."
+
+    def _build_item_id(self, prefix: str) -> str:
+        import uuid
+
+        return f"{prefix}_{uuid.uuid4().hex}"
+
+    def _normalize_tags(self, tags: Optional[Iterable[str]]) -> List[str]:
+        if not tags:
+            return ["capture", "mobile"]
+        normalized: List[str] = []
+        seen = set()
+        for tag in tags:
+            cleaned = str(tag).strip().lower()
+            if not cleaned or cleaned in seen:
+                continue
+            normalized.append(cleaned)
+            seen.add(cleaned)
+        if "capture" not in seen:
+            normalized.insert(0, "capture")
+        if "mobile" not in set(normalized):
+            normalized.append("mobile")
+        return normalized
 
     def _decode_metadata(self, metadata_json: Optional[str]) -> Dict[str, Any]:
         if not metadata_json:

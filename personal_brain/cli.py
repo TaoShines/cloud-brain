@@ -24,7 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("sync", help="Import all configured data sources")
     subparsers.add_parser("stats", help="Show record counts")
     serve_parser = subparsers.add_parser(
-        "serve", help="Start the local read-only HTTP API"
+        "serve", help="Start the local HTTP API"
     )
     serve_parser.add_argument(
         "--host",
@@ -49,12 +49,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     timeline_parser.add_argument(
         "--source",
-        choices=["blog", "codex", "bookmark"],
+        choices=["blog", "codex", "bookmark", "capture"],
         help="Optional source filter",
     )
     timeline_parser.add_argument(
         "--type",
-        choices=["blog", "diary", "conversation", "message", "bookmark"],
+        choices=["blog", "diary", "conversation", "message", "bookmark", "capture"],
         help="Optional record type filter",
     )
 
@@ -65,7 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
     search_parser.add_argument("query", help="FTS query string")
     search_parser.add_argument(
         "--kind",
-        choices=["blog", "diary", "conversation", "message", "bookmark"],
+        choices=["blog", "diary", "conversation", "message", "bookmark", "capture"],
         help="Optional item type filter",
     )
     search_parser.add_argument(
@@ -171,7 +171,12 @@ def main() -> int:
 
         if args.command == "serve":
             database.close()
-            run_api_server(config.database_path, host=args.host, port=args.port)
+            run_api_server(
+                config.database_path,
+                host=args.host,
+                port=args.port,
+                capture_token=config.capture_token,
+            )
             return 0
 
         if args.command == "timeline":

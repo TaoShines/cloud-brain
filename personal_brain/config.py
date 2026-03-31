@@ -13,6 +13,7 @@ class AppConfig:
     blog_glob: str
     codex_state_db_path: Optional[Path]
     chrome_bookmarks_path: Optional[Path]
+    capture_token: Optional[str]
     include_assistant_commentary: bool = True
     include_assistant_final_answers: bool = True
 
@@ -29,6 +30,7 @@ def load_config(config_path: Path) -> AppConfig:
         chrome_bookmarks_path=_resolve_path(
             payload.get("chrome_bookmarks_path"), config_dir
         ),
+        capture_token=_optional_string(payload.get("capture_token")),
         include_assistant_commentary=payload.get("include_assistant_commentary", True),
         include_assistant_final_answers=payload.get(
             "include_assistant_final_answers", True
@@ -58,3 +60,10 @@ def _resolve_path(value: object, config_dir: Path) -> Optional[Path]:
     if not path.is_absolute():
         path = (config_dir / path).resolve()
     return path
+
+
+def _optional_string(value: object) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None

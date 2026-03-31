@@ -1,0 +1,8 @@
+name = "cloud-brain-capture"
+main = "src/index.js"
+compatibility_date = "2026-03-31"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "cloud-brain-capture"
+database_id = "a907280b-dc7a-4521-8cd1-412f90e270b4"

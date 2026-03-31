@@ -1,0 +1,10 @@
+{
+  "name": "cloudflare-capture",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "npx wrangler deploy",
+    "dev": "npx wrangler dev",
+    "d1:create": "npx wrangler d1 create cloud-brain-capture"
+  }
+}

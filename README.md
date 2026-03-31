@@ -140,6 +140,83 @@ Run the local daily sync script manually:
 ./scripts/daily_sync.sh
 ```
 
+## Current Capture Status
+
+The project now has two working capture paths:
+
+1. local capture into the repo SQLite database
+2. cloud capture into Cloudflare Workers + D1
+
+Current behavior:
+
+- local browser or local API capture writes into `data/personal_brain.db`
+- local capture items are stored as canonical `items` with `item_type=capture`
+- sync no longer wipes manually created local capture items when blog, Codex,
+  or bookmark sources refresh
+- cloud capture is deployed separately in [`cloudflare-capture`](/Users/taoxuan/Desktop/cloud-brain/cloudflare-capture)
+- cloud capture writes into Cloudflare D1, not yet into local SQLite
+
+Important current limitation:
+
+- cloud capture and local brain are not merged automatically yet
+- the next implementation step should be a sync path from Cloudflare D1 back
+  into local SQLite
+
+## Local Checks
+
+To check whether a locally captured thought has been saved into the local brain
+database, use the CLI first.
+
+Search local capture items by keyword:
+
+```bash
+python3 -m personal_brain search "震惊" --kind capture --show-full
+python3 -m personal_brain search "关键词" --kind capture
+```
+
+Show the latest local capture records:
+
+```bash
+python3 -m personal_brain timeline --limit 10 --type capture
+python3 -m personal_brain timeline --limit 20 --source capture
+```
+
+Show one local capture item in full after you know the `item_id`:
+
+```bash
+python3 -m personal_brain show "capture:your-item-id"
+```
+
+If the local API is running, you can also inspect local capture data through
+HTTP:
+
+```bash
+python3 -m personal_brain serve --host 127.0.0.1 --port 8765
+curl "http://127.0.0.1:8765/items?item_type=capture&limit=10"
+curl "http://127.0.0.1:8765/search?q=关键词&item_type=capture&limit=5"
+```
+
+## Cloud Capture Checks
+
+The cloud capture service is a separate deployment under
+[`cloudflare-capture`](/Users/taoxuan/Desktop/cloud-brain/cloudflare-capture).
+
+To inspect cloud-side captures from this Mac:
+
+```bash
+export PATH="/opt/homebrew/opt/node@20/bin:$PATH"
+cd /Users/taoxuan/Desktop/cloud-brain/cloudflare-capture
+npx wrangler d1 execute cloud-brain-capture --remote --command "SELECT item_id, created_at, title FROM captures ORDER BY created_at DESC LIMIT 10"
+```
+
+To count cloud capture rows:
+
+```bash
+export PATH="/opt/homebrew/opt/node@20/bin:$PATH"
+cd /Users/taoxuan/Desktop/cloud-brain/cloudflare-capture
+npx wrangler d1 execute cloud-brain-capture --remote --command "SELECT COUNT(*) AS capture_count FROM captures"
+```
+
 ## Configuration
 
 The project now separates shared defaults from machine-specific paths:
@@ -240,9 +317,9 @@ Each record keeps:
 
 An FTS5 index that unifies your searchable content for fast keyword search.
 
-## Local Read API
+## Local API
 
-The project now exposes a minimal read-only HTTP API for scripts and AI tools.
+The project now exposes a minimal local HTTP API for scripts and AI tools.
 
 Current endpoints:
 
@@ -252,6 +329,8 @@ Current endpoints:
 - `GET /items`
 - `GET /items/{item_id}`
 - `GET /search?q=...`
+- `GET /capture`
+- `POST /captures`
 
 Supported filters today:
 
@@ -276,6 +355,52 @@ curl "http://127.0.0.1:8765/items?item_type=bookmark&domain=www.youtube.com"
 curl "http://127.0.0.1:8765/timeline?source_type=bookmark&created_after=2026-03-01T00:00:00+00:00"
 curl "http://127.0.0.1:8765/search?q=AI&item_type=bookmark&status=active&limit=10"
 ```
+
+Mobile capture write example:
+
+```bash
+curl -X POST http://127.0.0.1:8765/captures \
+  -H "Content-Type: application/json" \
+  -d '{
+    "body": "在路上突然想到：把每日复盘和 mobile capture 自动串起来。",
+    "device": "iphone",
+    "input_type": "voice",
+    "source_label": "typeless_ai",
+    "tags": ["idea", "workflow"]
+  }'
+```
+
+`POST /captures` accepts:
+
+- required `body`
+- optional `title`
+- optional `created_at`
+- optional `device`
+- optional `input_type`
+- optional `source_label`
+- optional `tags`
+
+New capture items are stored as canonical `items` with `source_type=capture`
+and `item_type=capture`, so they remain available through the existing
+`/items`, `/timeline`, and `/search` endpoints after future sync runs.
+
+If you want to expose capture on the public internet, set `capture_token` in
+`config.local.json` first and open the page as:
+
+```text
+https://your-public-url.example/capture?token=your-secret-token
+```
+
+For Android, the intended first-run flow is:
+
+1. open `http://<your-mac-ip>:8765/capture` in the phone browser
+2. use Typeless AI as the keyboard or voice input method
+3. tap save once to send the transcribed text into Cloud Brain
+4. optionally add the page to the Android home screen for an app-like shortcut
+
+For a long-lived public deployment, use the Cloudflare Workers version in
+[`cloudflare-capture`](/Users/taoxuan/Desktop/cloud-brain/cloudflare-capture)
+instead of relying on the local Mac to stay online.
 
 ## Importer Standard
 
