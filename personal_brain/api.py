@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from .config import AppConfig
 from .database import Database
 from .sync import sync_cloud_capture_to_local
+from .time_filters import normalize_created_range
 
 CAPTURE_WEB_MANIFEST = {
     "name": "Cloud Brain Capture",
@@ -440,6 +441,37 @@ def build_handler(
                     self._write_json(200, {"stats": database.api_stats()})
                     return
 
+                if parsed.path == "/migrations":
+                    limit = _int_arg(query, "limit", 50)
+                    rows = database.list_schema_migrations()[:limit]
+                    self._write_json(
+                        200,
+                        {
+                            "migrations": [
+                                {
+                                    "version": row["version"],
+                                    "applied_at": row["applied_at"],
+                                }
+                                for row in rows
+                            ],
+                            "count": len(rows),
+                        },
+                    )
+                    return
+
+                if parsed.path == "/sync-runs":
+                    limit = _int_arg(query, "limit", 20)
+                    source_key = _first_arg(query, "source_key")
+                    status = _first_arg(query, "status")
+                    rows = database.list_sync_runs(
+                        limit=limit,
+                        source_key=source_key,
+                        status=status,
+                    )
+                    runs = [database.serialize_sync_run(row) for row in rows]
+                    self._write_json(200, {"sync_runs": runs, "count": len(runs)})
+                    return
+
                 if parsed.path == "/timeline":
                     limit = _int_arg(query, "limit", 20)
                     offset = _int_arg(query, "offset", 0, minimum=0)
@@ -448,8 +480,14 @@ def build_handler(
                     tag = _first_arg(query, "tag")
                     status = _first_arg(query, "status")
                     domain = _first_arg(query, "domain")
-                    created_after = _first_arg(query, "created_after")
-                    created_before = _first_arg(query, "created_before")
+                    try:
+                        created_after, created_before = normalize_created_range(
+                            _first_arg(query, "created_after"),
+                            _first_arg(query, "created_before"),
+                        )
+                    except ValueError as exc:
+                        self._write_json(400, {"error": str(exc)})
+                        return
                     rows = database.item_timeline(
                         limit=limit,
                         offset=offset,
@@ -473,8 +511,14 @@ def build_handler(
                     tag = _first_arg(query, "tag")
                     status = _first_arg(query, "status")
                     domain = _first_arg(query, "domain")
-                    created_after = _first_arg(query, "created_after")
-                    created_before = _first_arg(query, "created_before")
+                    try:
+                        created_after, created_before = normalize_created_range(
+                            _first_arg(query, "created_after"),
+                            _first_arg(query, "created_before"),
+                        )
+                    except ValueError as exc:
+                        self._write_json(400, {"error": str(exc)})
+                        return
                     rows = database.list_items(
                         limit=limit,
                         offset=offset,
@@ -488,6 +532,29 @@ def build_handler(
                     )
                     items = [database.serialize_item(row, include_body=False) for row in rows]
                     self._write_json(200, {"items": items, "count": len(items)})
+                    return
+
+                if parsed.path.startswith("/items/") and parsed.path.endswith("/related"):
+                    item_id = unquote(parsed.path[len("/items/") : -len("/related")])
+                    limit = _int_arg(query, "limit", 10)
+                    relation_type = _first_arg(query, "relation_type")
+                    rows = database.list_related_items(
+                        item_id,
+                        limit=limit,
+                        relation_type=relation_type,
+                    )
+                    items = [
+                        database.serialize_related_item(row, include_body=False)
+                        for row in rows
+                    ]
+                    self._write_json(
+                        200,
+                        {
+                            "item_id": item_id,
+                            "items": items,
+                            "count": len(items),
+                        },
+                    )
                     return
 
                 if parsed.path.startswith("/items/"):
@@ -510,8 +577,14 @@ def build_handler(
                     tag = _first_arg(query, "tag")
                     status = _first_arg(query, "status")
                     domain = _first_arg(query, "domain")
-                    created_after = _first_arg(query, "created_after")
-                    created_before = _first_arg(query, "created_before")
+                    try:
+                        created_after, created_before = normalize_created_range(
+                            _first_arg(query, "created_after"),
+                            _first_arg(query, "created_before"),
+                        )
+                    except ValueError as exc:
+                        self._write_json(400, {"error": str(exc)})
+                        return
                     rows = database.search_items(
                         text,
                         limit=limit,

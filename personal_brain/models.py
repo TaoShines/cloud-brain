@@ -85,6 +85,16 @@ class MemoryItem:
 
 
 @dataclass
+class ItemLink:
+    source_item_id: str
+    target_item_id: str
+    relation_type: str
+    relation_value: Optional[str]
+    score: float
+    metadata: Dict[str, object]
+
+
+@dataclass
 class ImporterPayload:
     source_key: str
     source_type: str

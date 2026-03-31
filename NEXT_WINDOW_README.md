@@ -42,6 +42,25 @@ This file is a short handoff for continuing work in a new window.
 - status handoff was refreshed:
   [`STATUS.md`](/Users/taoxuan/Desktop/cloud-brain/STATUS.md)
 
+### 5. Schema evolution and sync execution are now tracked
+
+- database init now applies tracked migrations through:
+  [`personal_brain/database.py`](/Users/taoxuan/Desktop/cloud-brain/personal_brain/database.py)
+- applied migrations are stored in:
+  `schema_migrations`
+- sync execution metadata is stored in:
+  `sync_runs`
+- `sync_configured_sources` now writes:
+  - one root run for the whole sync
+  - one child run per source
+- `sync_cloud_capture_to_local` writes its own run entry too
+- CLI inspection commands:
+  - `python3 -m personal_brain migrations`
+  - `python3 -m personal_brain sync-runs --limit 10`
+- API endpoints:
+  - `GET /migrations`
+  - `GET /sync-runs`
+
 ## Current Verified State
 
 Local verification completed:
@@ -55,6 +74,8 @@ Local verification completed:
   - `items where item_id like 'gemini:activity:%'`: `0`
   - `items where item_id like 'gemini:session:%'`: `614`
   - `records where source_type='gemini'`: `614`
+  - `schema_migrations`: `2`
+  - `sync_runs` after one full sync: `6`
 
 ## Next Step
 
@@ -62,12 +83,12 @@ No urgent Gemini cleanup is required right now.
 
 Best next move:
 
-1. leave the current Gemini session import as-is unless real usage shows a
-   specific pain point
-2. if Gemini titles become annoying later, improve session title selection in:
-   [`personal_brain/importers/gemini.py`](/Users/taoxuan/Desktop/cloud-brain/personal_brain/importers/gemini.py)
-3. otherwise continue with the broader Cloud Brain roadmap rather than spending
-   more time on Gemini grouping heuristics
+1. keep focusing on infrastructure rather than topic modeling
+2. use `schema_migrations` and `sync_runs` as the base for future evolution
+3. if continuing infrastructure work, likely next improvements are:
+   - sync duration and warning fields
+   - source-level health views
+   - stronger migration ergonomics
 
 ## Useful Commands
 
@@ -76,12 +97,16 @@ cd /Users/taoxuan/Desktop/cloud-brain
 
 python3 -m personal_brain timeline --source gemini --limit 8
 python3 -m personal_brain search "公式图片" --kind conversation --limit 5
+python3 -m personal_brain migrations
+python3 -m personal_brain sync-runs --limit 10
 
 sqlite3 data/personal_brain.db "
 select count(*) as items from items where source_key='gemini_exports';
 select count(*) as activity_items from items where source_key='gemini_exports' and item_id like 'gemini:activity:%';
 select count(*) as session_items from items where source_key='gemini_exports' and item_id like 'gemini:session:%';
 select count(*) as records from records where source_type='gemini';
+select count(*) as migrations from schema_migrations;
+select count(*) as sync_runs from sync_runs;
 "
 ```
 
@@ -90,4 +115,5 @@ select count(*) as records from records where source_type='gemini';
 - branch:
   `codex-cloud-capture-auto-sync`
 - latest commit for this work:
-  `f6326ed` `Refine Gemini import into canonical sessions`
+  working tree has uncommitted infrastructure updates for migrations and
+  sync run tracking

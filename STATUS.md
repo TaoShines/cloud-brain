@@ -75,6 +75,26 @@ This file is a short handoff note for resuming work in a new thread or window.
 - current README:
   [`README.md`](/Users/taoxuan/Desktop/cloud-brain/README.md)
 
+### 6. Schema migrations and sync run metadata were added
+
+- database initialization now applies tracked schema migrations through:
+  [`personal_brain/database.py`](/Users/taoxuan/Desktop/cloud-brain/personal_brain/database.py)
+- applied migrations are stored in:
+  `schema_migrations`
+- sync execution metadata is now stored in:
+  `sync_runs`
+- each top-level sync now records:
+  - start and finish time
+  - success or failure status
+  - per-source child runs
+  - per-run counts and error messages
+- CLI inspection commands now exist:
+  - `python3 -m personal_brain migrations`
+  - `python3 -m personal_brain sync-runs --limit 10`
+- API inspection endpoints now exist:
+  - `GET /migrations`
+  - `GET /sync-runs`
+
 ## Current Behavior
 
 ### Cloud capture
@@ -90,6 +110,13 @@ This file is a short handoff note for resuming work in a new thread or window.
 - these sources now preserve historical items in the local memory database
 - if a source item disappears later, the local memory item is kept and marked
   `deleted` instead of being physically removed
+
+### Schema and sync metadata
+
+- schema upgrades are now tracked in `schema_migrations`
+- sync history is now queryable in `sync_runs`
+- `sync_configured_sources` writes one root run and one child run per source
+- `sync_cloud_capture_to_local` writes its own sync run entry
 
 ### Gemini
 
@@ -111,6 +138,8 @@ This file is a short handoff note for resuming work in a new thread or window.
   [`personal_brain/api.py`](/Users/taoxuan/Desktop/cloud-brain/personal_brain/api.py)
 - database behavior:
   [`personal_brain/database.py`](/Users/taoxuan/Desktop/cloud-brain/personal_brain/database.py)
+- sync orchestration:
+  [`personal_brain/sync.py`](/Users/taoxuan/Desktop/cloud-brain/personal_brain/sync.py)
 - importer registry:
   [`personal_brain/importers/__init__.py`](/Users/taoxuan/Desktop/cloud-brain/personal_brain/importers/__init__.py)
 - blog importer:
@@ -146,19 +175,18 @@ Recent commits:
 
 ## Best Next Step
 
-Improve Gemini grouping only if the current session-style import proves too
-rough in real use.
+Continue strengthening infrastructure instead of adding opinionated topic logic.
 
 Recommended next action:
 
-1. verify current Gemini import locally
-2. run:
-   `python3 -m personal_brain sync`
-3. inspect with:
-   `python3 -m personal_brain timeline --source gemini --limit 10`
-4. search for a known Gemini topic with:
-   `python3 -m personal_brain search "公式图片" --kind conversation --limit 5`
-5. only if grouping still feels wrong later, refine the Gemini session heuristic
+1. inspect migration and sync metadata locally
+2. keep the canonical item schema stable
+3. if needed next, add more operational metadata such as:
+   - sync duration
+   - source-level warnings
+   - source checksums or import snapshots
+4. only after the database contract feels stable, consider higher-level AI
+   retrieval layers
 
 ## Longer-Term Direction
 
@@ -203,4 +231,12 @@ python3 -m personal_brain sync
 python3 -m personal_brain timeline --source gemini --limit 10
 python3 -m personal_brain search "公式图片" --kind conversation --limit 5
 sqlite3 data/personal_brain.db "select count(*) from items where source_key='gemini_exports';"
+```
+
+Check schema and sync infrastructure:
+
+```bash
+python3 -m personal_brain migrations
+python3 -m personal_brain sync-runs --limit 10
+sqlite3 data/personal_brain.db "select id, sync_type, source_key, status, started_at, finished_at from sync_runs order by id desc limit 10;"
 ```

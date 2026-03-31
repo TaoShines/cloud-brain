@@ -9,6 +9,38 @@ see [`ARCHITECTURE.md`](/Users/taoxuan/Desktop/cloud-brain/ARCHITECTURE.md).
 
 This project is becoming a personal memory backend for long-term AI use.
 
+## Recent Infrastructure Updates
+
+The most recent work focused on infrastructure instead of topic modeling.
+
+What changed:
+
+- Gemini import now lands in one canonical session-style item format
+- CLI and API time filters now support both ISO timestamps and `YYYY-MM-DD`
+- `item_links` now stores lightweight structural relationships such as
+  `conversation -> message`
+- database initialization now applies tracked schema migrations through
+  `schema_migrations`
+- sync execution metadata is now stored in `sync_runs`
+- each full sync records:
+  - one root run for the overall sync
+  - one child run per source
+  - start time, finish time, status, counts, and error message when present
+
+Why this matters:
+
+- the database contract is becoming safer to evolve
+- future AI clients can inspect sync freshness and sync health directly
+- new schema changes can be introduced without relying on one giant init script
+- the system is moving closer to a durable personal data infrastructure instead
+  of a one-off importer bundle
+
+Recommended next infrastructure steps:
+
+- record sync duration and source-level warnings
+- expose a clearer source health view through the API
+- keep stabilizing canonical item fields before adding higher-level AI layers
+
 The working direction is:
 
 - keep your source data in its original tools and folders
@@ -100,6 +132,8 @@ View basic stats:
 
 ```bash
 python3 -m personal_brain stats
+python3 -m personal_brain migrations
+python3 -m personal_brain sync-runs --limit 10
 ```
 
 Start the local read-only API:
@@ -114,6 +148,7 @@ Search across blog entries, thread titles, user questions, and assistant replies
 python3 -m personal_brain search "数据库"
 python3 -m personal_brain search "Codex" --kind message
 python3 -m personal_brain search "佛教" --context 120
+python3 -m personal_brain search "公式图片" --source gemini --after 2026-03-01 --before 2026-03-31
 ```
 
 Show one combined timeline across blog, Codex, and bookmarks:
@@ -123,6 +158,7 @@ python3 -m personal_brain timeline --limit 20
 python3 -m personal_brain timeline --source blog
 python3 -m personal_brain timeline --source gemini
 python3 -m personal_brain timeline --type message
+python3 -m personal_brain timeline --source capture --after 2026-03-31
 ```
 
 Show one record in full:
@@ -130,6 +166,13 @@ Show one record in full:
 ```bash
 python3 -m personal_brain show "blog:src/data/blog/_2026-03-30.md"
 python3 -m personal_brain show "019d403f-5817-7320-b960-4d738388d8f2:48"
+```
+
+Show related canonical items:
+
+```bash
+python3 -m personal_brain related "capture:your-item-id"
+python3 -m personal_brain related "019d403f-5817-7320-b960-4d738388d8f2:48" --relation part_of
 ```
 
 Query the local API from another AI tool or script:
@@ -390,9 +433,12 @@ Current endpoints:
 
 - `GET /health`
 - `GET /stats`
+- `GET /migrations`
+- `GET /sync-runs`
 - `GET /timeline`
 - `GET /items`
 - `GET /items/{item_id}`
+- `GET /items/{item_id}/related`
 - `GET /search?q=...`
 - `GET /capture`
 - `POST /captures`
@@ -409,6 +455,15 @@ Supported filters today:
 - `created_after`
 - `created_before`
 
+Time filters accept either:
+
+- full ISO-8601 timestamps such as `2026-03-31T00:00:00Z`
+- date-only values such as `2026-03-31`
+
+Date-only filters are interpreted in UTC. `created_after=2026-03-31` means the
+start of that UTC day, while `created_before=2026-03-31` means the end of that
+UTC day.
+
 Bookmark items are also available through the same `items`, `timeline`, and
 `search` endpoints once they have been synced.
 
@@ -419,7 +474,26 @@ curl "http://127.0.0.1:8765/items?item_type=bookmark&status=active&limit=20"
 curl "http://127.0.0.1:8765/items?item_type=bookmark&domain=www.youtube.com"
 curl "http://127.0.0.1:8765/timeline?source_type=bookmark&created_after=2026-03-01T00:00:00+00:00"
 curl "http://127.0.0.1:8765/search?q=AI&item_type=bookmark&status=active&limit=10"
+curl "http://127.0.0.1:8765/items/capture:your-item-id/related?limit=10"
+curl "http://127.0.0.1:8765/migrations"
+curl "http://127.0.0.1:8765/sync-runs?limit=10"
 ```
+
+Current relationship types:
+
+- `has_part` and `part_of` for explicit parent-child item structure
+- `shares_tag` for cross-item links built from small, non-generic shared tags
+
+## Schema And Sync Metadata
+
+The database now keeps two pieces of infrastructure metadata:
+
+- `schema_migrations` records which schema upgrades have been applied
+- `sync_runs` records when sync jobs started, finished, succeeded, or failed
+
+This makes the database safer to evolve over time and gives future AI tools a
+way to inspect import health instead of assuming the local replica is always
+fresh.
 
 Mobile capture write example:
 

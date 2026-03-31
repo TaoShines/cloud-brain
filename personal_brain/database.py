@@ -11,14 +11,20 @@ from .models import (
     BookmarkRecord,
     ConversationRecord,
     DocumentRecord,
+    ItemLink,
     MemoryItem,
     MessageRecord,
     UnifiedRecord,
 )
 
 
-SCHEMA = """
+BASE_SCHEMA = """
 PRAGMA foreign_keys = ON;
+
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version TEXT PRIMARY KEY,
+    applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
 CREATE TABLE IF NOT EXISTS sources (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -141,6 +147,58 @@ CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
 );
 """
 
+MIGRATIONS: List[Tuple[str, str]] = [
+    (
+        "2026_04_01_001_item_links",
+        """
+        CREATE TABLE IF NOT EXISTS item_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_item_id TEXT NOT NULL,
+            target_item_id TEXT NOT NULL,
+            relation_type TEXT NOT NULL,
+            relation_value TEXT,
+            score REAL NOT NULL DEFAULT 1.0,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE (source_item_id, target_item_id, relation_type, relation_value),
+            FOREIGN KEY (source_item_id) REFERENCES items(item_id) ON DELETE CASCADE,
+            FOREIGN KEY (target_item_id) REFERENCES items(item_id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_item_links_source_item_id
+        ON item_links(source_item_id);
+        CREATE INDEX IF NOT EXISTS idx_item_links_target_item_id
+        ON item_links(target_item_id);
+        CREATE INDEX IF NOT EXISTS idx_item_links_relation_type
+        ON item_links(relation_type);
+        """,
+    ),
+    (
+        "2026_04_01_002_sync_runs",
+        """
+        CREATE TABLE IF NOT EXISTS sync_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            parent_run_id INTEGER,
+            sync_type TEXT NOT NULL,
+            source_key TEXT,
+            source_type TEXT,
+            location TEXT,
+            status TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            finished_at TEXT,
+            error_message TEXT,
+            stats_json TEXT NOT NULL DEFAULT '{}',
+            FOREIGN KEY (parent_run_id) REFERENCES sync_runs(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_sync_runs_started_at
+        ON sync_runs(started_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_sync_runs_source_key
+        ON sync_runs(source_key);
+        CREATE INDEX IF NOT EXISTS idx_sync_runs_status
+        ON sync_runs(status);
+        """,
+    ),
+]
+
 
 class Database:
     def __init__(self, db_path: Path) -> None:
@@ -163,8 +221,37 @@ class Database:
         self._closed = True
 
     def init(self) -> None:
-        self.connection.executescript(SCHEMA)
+        self.connection.executescript(BASE_SCHEMA)
+        self._apply_migrations()
         self.connection.commit()
+
+    def _apply_migrations(self) -> None:
+        applied_versions = {
+            row["version"]
+            for row in self.connection.execute(
+                "SELECT version FROM schema_migrations"
+            ).fetchall()
+        }
+        for version, sql in MIGRATIONS:
+            if version in applied_versions:
+                continue
+            self.connection.executescript(sql)
+            self.connection.execute(
+                """
+                INSERT INTO schema_migrations (version, applied_at)
+                VALUES (?, datetime('now'))
+                """,
+                (version,),
+            )
+
+    def list_schema_migrations(self) -> List[sqlite3.Row]:
+        return self.connection.execute(
+            """
+            SELECT version, applied_at
+            FROM schema_migrations
+            ORDER BY applied_at ASC, version ASC
+            """
+        ).fetchall()
 
     def upsert_source(self, source_key: str, source_type: str, location: str) -> None:
         self.connection.execute(
@@ -323,6 +410,9 @@ class Database:
             SELECT
                 (SELECT COUNT(*) FROM records) AS record_count,
                 (SELECT COUNT(*) FROM items) AS item_count,
+                (SELECT COUNT(*) FROM item_links) AS item_link_count,
+                (SELECT COUNT(*) FROM schema_migrations) AS schema_migration_count,
+                (SELECT COUNT(*) FROM sync_runs) AS sync_run_count,
                 (SELECT COUNT(*) FROM documents) AS document_count,
                 (SELECT COUNT(*) FROM document_tags) AS document_tag_count,
                 (SELECT COUNT(*) FROM item_tags) AS item_tag_count,
@@ -338,6 +428,9 @@ class Database:
         return {
             "records": stats["record_count"],
             "items": stats["item_count"],
+            "item_links": stats["item_link_count"],
+            "schema_migrations": stats["schema_migration_count"],
+            "sync_runs": stats["sync_run_count"],
             "documents": stats["document_count"],
             "document_tags": stats["document_tag_count"],
             "item_tags": stats["item_tag_count"],
@@ -807,6 +900,71 @@ class Database:
             (item_id,),
         ).fetchone()
 
+    def list_related_items(
+        self,
+        item_id: str,
+        limit: int = 10,
+        relation_type: Optional[str] = None,
+    ) -> List[sqlite3.Row]:
+        sql = """
+            SELECT
+                item_links.relation_type,
+                CASE
+                    WHEN item_links.relation_type = 'shares_tag'
+                    THEN group_concat(DISTINCT item_links.relation_value)
+                    ELSE max(item_links.relation_value)
+                END AS relation_value,
+                max(item_links.score) AS score,
+                items.item_id,
+                items.source_key,
+                items.source_type,
+                items.external_id,
+                items.item_type,
+                items.title,
+                items.body,
+                items.created_at,
+                items.updated_at,
+                items.imported_at,
+                items.checksum,
+                items.location,
+                items.parent_id,
+                items.metadata_json
+            FROM item_links
+            JOIN items ON items.item_id = item_links.target_item_id
+            WHERE item_links.source_item_id = ?
+              AND coalesce(json_extract(items.metadata_json, '$.status'), 'active') != 'deleted'
+        """
+        parameters: List[object] = [item_id]
+        if relation_type:
+            sql += " AND item_links.relation_type = ?"
+            parameters.append(relation_type)
+        sql += """
+            GROUP BY
+                item_links.relation_type,
+                items.item_id,
+                items.source_key,
+                items.source_type,
+                items.external_id,
+                items.item_type,
+                items.title,
+                items.body,
+                items.created_at,
+                items.updated_at,
+                items.imported_at,
+                items.checksum,
+                items.location,
+                items.parent_id,
+                items.metadata_json
+            ORDER BY
+                score DESC,
+                CASE WHEN items.created_at IS NULL THEN 1 ELSE 0 END,
+                items.created_at DESC,
+                items.id DESC
+            LIMIT ?
+        """
+        parameters.append(limit)
+        return self.connection.execute(sql, parameters).fetchall()
+
     def get_item_tags(self, item_id: str) -> List[str]:
         rows = self.connection.execute(
             """
@@ -842,6 +1000,127 @@ class Database:
         if "snippet" in row.keys():
             payload["snippet"] = row["snippet"]
         return payload
+
+    def serialize_related_item(self, row: sqlite3.Row, include_body: bool = False) -> Dict[str, Any]:
+        payload = self.serialize_item(row, include_body=include_body)
+        payload["relation"] = {
+            "type": row["relation_type"],
+            "value": row["relation_value"],
+            "score": row["score"],
+        }
+        return payload
+
+    def start_sync_run(
+        self,
+        sync_type: str,
+        *,
+        source_key: Optional[str] = None,
+        source_type: Optional[str] = None,
+        location: Optional[str] = None,
+        parent_run_id: Optional[int] = None,
+    ) -> int:
+        started_at = datetime.now(timezone.utc).isoformat()
+        cursor = self.connection.execute(
+            """
+            INSERT INTO sync_runs (
+                parent_run_id,
+                sync_type,
+                source_key,
+                source_type,
+                location,
+                status,
+                started_at
+            ) VALUES (?, ?, ?, ?, ?, 'running', ?)
+            """,
+            (
+                parent_run_id,
+                sync_type,
+                source_key,
+                source_type,
+                location,
+                started_at,
+            ),
+        )
+        self.connection.commit()
+        return int(cursor.lastrowid)
+
+    def finish_sync_run(
+        self,
+        run_id: int,
+        *,
+        status: str,
+        stats: Optional[Dict[str, object]] = None,
+        error_message: Optional[str] = None,
+    ) -> None:
+        self.connection.execute(
+            """
+            UPDATE sync_runs
+            SET status = ?,
+                finished_at = ?,
+                error_message = ?,
+                stats_json = ?
+            WHERE id = ?
+            """,
+            (
+                status,
+                datetime.now(timezone.utc).isoformat(),
+                error_message,
+                json.dumps(stats or {}, ensure_ascii=True, sort_keys=True),
+                run_id,
+            ),
+        )
+        self.connection.commit()
+
+    def list_sync_runs(
+        self,
+        limit: int = 20,
+        source_key: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> List[sqlite3.Row]:
+        sql = """
+            SELECT
+                id,
+                parent_run_id,
+                sync_type,
+                source_key,
+                source_type,
+                location,
+                status,
+                started_at,
+                finished_at,
+                error_message,
+                stats_json
+            FROM sync_runs
+            WHERE 1 = 1
+        """
+        parameters: List[object] = []
+        if source_key:
+            sql += " AND source_key = ?"
+            parameters.append(source_key)
+        if status:
+            sql += " AND status = ?"
+            parameters.append(status)
+        sql += """
+            ORDER BY started_at DESC, id DESC
+            LIMIT ?
+        """
+        parameters.append(limit)
+        return self.connection.execute(sql, parameters).fetchall()
+
+    def serialize_sync_run(self, row: sqlite3.Row) -> Dict[str, Any]:
+        return {
+            "id": row["id"],
+            "parent_run_id": row["parent_run_id"],
+            "sync_type": row["sync_type"],
+            "source_key": row["source_key"],
+            "source_type": row["source_type"],
+            "location": row["location"],
+            "status": row["status"],
+            "started_at": row["started_at"],
+            "finished_at": row["finished_at"],
+            "error_message": row["error_message"],
+            "stats": self._decode_metadata(row["stats_json"]),
+        }
 
     def get_entity_content(self, entity_type: str, entity_key: str) -> Optional[sqlite3.Row]:
         if entity_type == "document":
@@ -1005,6 +1284,7 @@ class Database:
                 )
             )
 
+        self.rebuild_item_links()
         self.connection.commit()
         return total
 
@@ -1109,6 +1389,7 @@ class Database:
                 tags=item.tags,
             )
         )
+        self.rebuild_item_links()
         self.connection.commit()
         return item
 
@@ -1117,6 +1398,11 @@ class Database:
         limit: int = 20,
         source_type: Optional[str] = None,
         record_type: Optional[str] = None,
+        tag: Optional[str] = None,
+        status: Optional[str] = None,
+        domain: Optional[str] = None,
+        created_after: Optional[str] = None,
+        created_before: Optional[str] = None,
     ) -> List[sqlite3.Row]:
         sql = """
             SELECT
@@ -1128,15 +1414,36 @@ class Database:
                 location,
                 substr(body, 1, 220) AS preview
             FROM items
-            WHERE coalesce(json_extract(metadata_json, '$.status'), 'active') != 'deleted'
         """
         parameters: List[object] = []
+        if tag:
+            sql += """
+                JOIN item_tags ON item_tags.item_id = items.id
+            """
+        sql += " WHERE 1 = 1"
+        if status is None:
+            sql += " AND coalesce(json_extract(metadata_json, '$.status'), 'active') != 'deleted'"
         if source_type:
             sql += " AND source_type = ?"
             parameters.append(source_type)
         if record_type:
             sql += " AND item_type = ?"
             parameters.append(record_type)
+        if tag:
+            sql += " AND item_tags.tag = ?"
+            parameters.append(tag)
+        if status:
+            sql += " AND json_extract(metadata_json, '$.status') = ?"
+            parameters.append(status)
+        if domain:
+            sql += " AND lower(json_extract(metadata_json, '$.domain')) = lower(?)"
+            parameters.append(domain)
+        if created_after:
+            sql += " AND created_at >= ?"
+            parameters.append(created_after)
+        if created_before:
+            sql += " AND created_at <= ?"
+            parameters.append(created_before)
         sql += """
             ORDER BY
                 CASE WHEN created_at IS NULL THEN 1 ELSE 0 END,
@@ -1412,6 +1719,14 @@ class Database:
         )
         return 0
 
+    def rebuild_item_links(self) -> int:
+        self.connection.execute("DELETE FROM item_links")
+        links = self._build_parent_child_links()
+        links.extend(self._build_shared_tag_links())
+        for link in links:
+            self._insert_item_link(link)
+        return len(links)
+
     def _mark_missing_memory_items_deleted(
         self,
         source_keys: List[str],
@@ -1473,6 +1788,146 @@ class Database:
         if row:
             return row["rollout_path"]
         return None
+
+    def _build_parent_child_links(self) -> List[ItemLink]:
+        rows = self.connection.execute(
+            """
+            SELECT child.item_id AS child_item_id, child.parent_id AS parent_item_id
+            FROM items AS child
+            JOIN items AS parent ON parent.item_id = child.parent_id
+            WHERE child.parent_id IS NOT NULL
+              AND coalesce(json_extract(child.metadata_json, '$.status'), 'active') != 'deleted'
+              AND coalesce(json_extract(parent.metadata_json, '$.status'), 'active') != 'deleted'
+            """
+        ).fetchall()
+        links: List[ItemLink] = []
+        for row in rows:
+            parent_item_id = row["parent_item_id"]
+            child_item_id = row["child_item_id"]
+            links.append(
+                ItemLink(
+                    source_item_id=parent_item_id,
+                    target_item_id=child_item_id,
+                    relation_type="has_part",
+                    relation_value=None,
+                    score=1.0,
+                    metadata={},
+                )
+            )
+            links.append(
+                ItemLink(
+                    source_item_id=child_item_id,
+                    target_item_id=parent_item_id,
+                    relation_type="part_of",
+                    relation_value=None,
+                    score=1.0,
+                    metadata={},
+                )
+            )
+        return links
+
+    def _build_shared_tag_links(self) -> List[ItemLink]:
+        generic_tags = {
+            "active",
+            "android",
+            "assistant",
+            "blog",
+            "bookmark",
+            "capture",
+            "cloud",
+            "codex",
+            "commentary",
+            "conversation",
+            "final_answer",
+            "gemini",
+            "generated_image",
+            "has_attachment",
+            "has_canvas",
+            "journal",
+            "message",
+            "mobile",
+            "quick_capture",
+            "session",
+            "takeout_html",
+            "user",
+            "voice",
+        }
+        placeholders = ", ".join("?" for _ in generic_tags)
+        rows = self.connection.execute(
+            f"""
+            WITH eligible_tags AS (
+                SELECT item_tags.tag
+                FROM item_tags
+                JOIN items ON items.id = item_tags.item_id
+                WHERE item_tags.tag NOT IN ({placeholders})
+                  AND length(item_tags.tag) >= 2
+                  AND coalesce(json_extract(items.metadata_json, '$.status'), 'active') != 'deleted'
+                GROUP BY item_tags.tag
+                HAVING COUNT(DISTINCT items.item_id) BETWEEN 2 AND 12
+            )
+            SELECT
+                source_items.item_id AS source_item_id,
+                target_items.item_id AS target_item_id,
+                source_items.source_type AS source_source_type,
+                target_items.source_type AS target_source_type,
+                source_items.item_type AS source_item_type,
+                target_items.item_type AS target_item_type,
+                source_tags.tag AS shared_tag
+            FROM item_tags AS source_tags
+            JOIN item_tags AS target_tags
+              ON target_tags.tag = source_tags.tag
+             AND target_tags.item_id > source_tags.item_id
+            JOIN items AS source_items ON source_items.id = source_tags.item_id
+            JOIN items AS target_items ON target_items.id = target_tags.item_id
+            JOIN eligible_tags ON eligible_tags.tag = source_tags.tag
+            WHERE coalesce(json_extract(source_items.metadata_json, '$.status'), 'active') != 'deleted'
+              AND coalesce(json_extract(target_items.metadata_json, '$.status'), 'active') != 'deleted'
+            ORDER BY source_tags.tag, source_items.created_at DESC, target_items.created_at DESC
+            """,
+            sorted(generic_tags),
+        ).fetchall()
+        links: List[ItemLink] = []
+        for row in rows:
+            if row["source_source_type"] == row["target_source_type"]:
+                continue
+            shared_tag = row["shared_tag"]
+            for source_item_id, target_item_id in (
+                (row["source_item_id"], row["target_item_id"]),
+                (row["target_item_id"], row["source_item_id"]),
+            ):
+                links.append(
+                    ItemLink(
+                        source_item_id=source_item_id,
+                        target_item_id=target_item_id,
+                        relation_type="shares_tag",
+                        relation_value=shared_tag,
+                        score=0.35,
+                        metadata={"tag": shared_tag},
+                    )
+                )
+        return links
+
+    def _insert_item_link(self, link: ItemLink) -> None:
+        self.connection.execute(
+            """
+            INSERT OR REPLACE INTO item_links (
+                source_item_id,
+                target_item_id,
+                relation_type,
+                relation_value,
+                score,
+                metadata_json
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                link.source_item_id,
+                link.target_item_id,
+                link.relation_type,
+                link.relation_value,
+                link.score,
+                json.dumps(link.metadata, ensure_ascii=True, sort_keys=True),
+            ),
+        )
 
     def _build_checksum(self, *parts: Optional[str]) -> str:
         import hashlib
