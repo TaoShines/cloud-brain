@@ -22,6 +22,7 @@ What changed:
 - database initialization now applies tracked schema migrations through
   `schema_migrations`
 - sync execution metadata is now stored in `sync_runs`
+- canonical item metadata is now normalized into one shared shape
 - each full sync records:
   - one root run for the overall sync
   - one child run per source
@@ -40,6 +41,38 @@ Recommended next infrastructure steps:
 - record sync duration and source-level warnings
 - expose a clearer source health view through the API
 - keep stabilizing canonical item fields before adding higher-level AI layers
+- make the API contract more explicit for future AI clients
+
+## Canonical Item Contract
+
+The project is now moving toward a more stable canonical shape for each item.
+
+Important current rule:
+
+- every canonical item keeps the same top-level fields such as `item_id`,
+  `source_type`, `item_type`, timestamps, checksum, location, and `parent_id`
+- item metadata is now normalized into one shared shape
+
+Current metadata contract:
+
+```json
+{
+  "metadata_schema_version": 1,
+  "status": "active",
+  "deleted_at": null,
+  "domain": null,
+  "source_details": {
+    "source-specific": "fields live here"
+  }
+}
+```
+
+This means:
+
+- shared lifecycle fields stay in predictable places
+- source-specific details do not leak into many incompatible top-level keys
+- future AI clients can read item metadata more consistently across blog,
+  Codex, Gemini, bookmarks, and capture
 
 The working direction is:
 
@@ -621,29 +654,27 @@ The current system already includes:
 - daily local sync on your Mac via `launchd`
 
 This means the core foundation is already in place. The main work ahead is
-continuing to strengthen retrieval, source expansion, and AI calling patterns
-on top of the existing memory backend.
-
-What is still missing is a native capture path for new thoughts. Right now the
-system is very good at importing existing data, but it still needs a fast way
-to accept fresh input from your phone while you are on the move.
+continuing to strengthen infrastructure and retrieval stability so future AI
+clients can trust the memory backend instead of treating it like an ad hoc
+import bundle.
 
 ## New Input Direction
 
-The latest agreed direction is to add a mobile capture flow for active input.
+The project now already has a working mobile/cloud capture flow for active
+input.
 
 Target flow:
 
 1. open a simple mobile-friendly app or web page
 2. speak a thought using your existing Typeless AI voice input
-3. submit the transcribed text into the Cloud Brain database
+3. submit the transcribed text into the cloud capture database
+4. sync it back into the local brain replica
 
 Important product decision:
 
-- the first version does not need to be a custom keyboard or input method
-- the first version should focus on a data capture endpoint
-- the first version can be a lightweight mobile web app instead of a full
-  native app
+- the first version stays intentionally lightweight
+- capture is cloud-first rather than depending on the Mac being online
+- local SQLite remains a replica and querying layer
 
 Why this matters:
 
@@ -653,25 +684,17 @@ Why this matters:
 - this turns the project from a passive archive into an active external memory
   system
 
-## Planned Capture Architecture
+## Current Capture Architecture
 
-The current planned implementation order is:
+Current behavior:
 
-1. add a write API for new memory capture
-2. define a new canonical item type such as `capture` or `voice_note`
-3. build a very small mobile-first input surface
-4. send captured text into the same SQLite-backed memory system
+1. phone or browser submits capture text to the public Cloudflare Worker
+2. cloud capture lands in Cloudflare D1
+3. local sync imports those capture rows into the canonical local SQLite brain
+4. capture items become normal canonical `items` with `item_type=capture`
 
-The first version should stay intentionally small:
-
-- one input field
-- one submit action
-- optional title later if needed
-- automatic timestamp
-- minimal metadata such as device or source type
-
-The goal is not to build a complex note-taking app first. The goal is to make
-"I had a thought on the road and saved it in seconds" actually work.
+This keeps capture usable from anywhere while still preserving one local brain
+database for inspection and experimentation.
 
 ## Local Daily Sync
 
@@ -705,14 +728,26 @@ after it finishes. Running them in parallel can show stale counts during a sync.
 
 - keep README and architecture docs current so new threads can resume quickly
 - continue improving AI-oriented retrieval filters and response stability
+- keep strengthening the canonical item contract and metadata shape
+- expose clearer sync health and source freshness metadata through the API
 - preserve importer standardization so new sources do not create ad hoc logic
-- add the first write path for mobile capture input
-- defer heavy UI work until the memory backend is more mature
+- defer heavy UI work and opinionated topic modeling until the memory backend is more mature
+
+## Next Step
+
+The recommended next step is still infrastructure-focused:
+
+1. add sync duration and warning fields to `sync_runs`
+2. expose a source health view through the API
+3. keep the canonical item contract stable before adding smarter AI layers
+
+This is a better next move than topic modeling because the project goal right
+now is a trustworthy personal data foundation that future AI can read well.
 
 ## Next Expansions
 
 - add future sources such as WeChat history, screenshots, and reading notes
-- add mobile capture input for fresh thoughts
+- strengthen source health and operational observability
 - attach embeddings for semantic retrieval when exact filters are no longer enough
 - define a more explicit AI query protocol on top of the current API
 - generate periodic summaries from your own archive

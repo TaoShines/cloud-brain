@@ -95,6 +95,22 @@ This file is a short handoff note for resuming work in a new thread or window.
   - `GET /migrations`
   - `GET /sync-runs`
 
+### 7. Canonical item metadata is now normalized
+
+- item metadata is now normalized into a shared contract during database init
+- common lifecycle fields are now stable:
+  - `metadata_schema_version`
+  - `status`
+  - `deleted_at`
+  - `domain`
+  - `source_details`
+- source-specific fields are now nested under `source_details` instead of
+  spreading across incompatible top-level metadata keys
+- implementation is in:
+  [`personal_brain/database.py`](/Users/taoxuan/Desktop/cloud-brain/personal_brain/database.py)
+- README documents the canonical metadata contract:
+  [`README.md`](/Users/taoxuan/Desktop/cloud-brain/README.md)
+
 ## Current Behavior
 
 ### Cloud capture

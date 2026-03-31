@@ -223,6 +223,7 @@ class Database:
     def init(self) -> None:
         self.connection.executescript(BASE_SCHEMA)
         self._apply_migrations()
+        self._backfill_item_metadata_contract()
         self.connection.commit()
 
     def _apply_migrations(self) -> None:
@@ -252,6 +253,28 @@ class Database:
             ORDER BY applied_at ASC, version ASC
             """
         ).fetchall()
+
+    def _backfill_item_metadata_contract(self) -> None:
+        rows = self.connection.execute(
+            """
+            SELECT item_id, metadata_json
+            FROM items
+            """
+        ).fetchall()
+        for row in rows:
+            metadata = self._decode_raw_metadata(row["metadata_json"])
+            normalized = self._normalize_item_metadata(metadata)
+            encoded = json.dumps(normalized, ensure_ascii=True, sort_keys=True)
+            if encoded == (row["metadata_json"] or ""):
+                continue
+            self.connection.execute(
+                """
+                UPDATE items
+                SET metadata_json = ?
+                WHERE item_id = ?
+                """,
+                (encoded, row["item_id"]),
+            )
 
     def upsert_source(self, source_key: str, source_type: str, location: str) -> None:
         self.connection.execute(
@@ -1966,12 +1989,32 @@ class Database:
         return normalized
 
     def _normalize_item_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
-        normalized = dict(metadata)
-        normalized["status"] = "active"
-        normalized["deleted_at"] = None
+        core_keys = {"metadata_schema_version", "status", "deleted_at", "domain", "source_details"}
+        normalized: Dict[str, Any] = {
+            "metadata_schema_version": 1,
+            "status": str(metadata.get("status") or "active"),
+            "deleted_at": metadata.get("deleted_at"),
+            "domain": metadata.get("domain"),
+        }
+        source_details = metadata.get("source_details")
+        if not isinstance(source_details, dict):
+            source_details = {}
+        merged_source_details = dict(source_details)
+        for key, value in metadata.items():
+            if key in core_keys:
+                continue
+            merged_source_details[key] = value
+        normalized["source_details"] = {
+            key: value
+            for key, value in merged_source_details.items()
+            if value is not None
+        }
         return normalized
 
     def _decode_metadata(self, metadata_json: Optional[str]) -> Dict[str, Any]:
+        return self._normalize_item_metadata(self._decode_raw_metadata(metadata_json))
+
+    def _decode_raw_metadata(self, metadata_json: Optional[str]) -> Dict[str, Any]:
         if not metadata_json:
             return {}
         try:

@@ -61,6 +61,21 @@ This file is a short handoff for continuing work in a new window.
   - `GET /migrations`
   - `GET /sync-runs`
 
+### 6. Canonical item metadata is now normalized
+
+- item metadata now follows one shared shape
+- stable top-level metadata keys are:
+  - `metadata_schema_version`
+  - `status`
+  - `deleted_at`
+  - `domain`
+  - `source_details`
+- source-specific details are nested under `source_details`
+- normalization is applied during database init in:
+  [`personal_brain/database.py`](/Users/taoxuan/Desktop/cloud-brain/personal_brain/database.py)
+- README now documents this contract:
+  [`README.md`](/Users/taoxuan/Desktop/cloud-brain/README.md)
+
 ## Current Verified State
 
 Local verification completed:
